@@ -10,6 +10,7 @@ use App\Http\Resources\CategoryResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Storage;
 
 class CategoryController extends Controller
 {
@@ -46,7 +47,12 @@ class CategoryController extends Controller
         $attributes = $request->validated();
 
         if ($request->hasFile('image')) {
+            $previousImagePath = $category->image_path;
             $attributes['image_path'] = $request->file('image')->store('categories', 'public');
+
+            if ($previousImagePath) {
+                Storage::disk('public')->delete($previousImagePath);
+            }
         }
 
         unset($attributes['image']);

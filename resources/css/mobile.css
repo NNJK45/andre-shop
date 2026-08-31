@@ -8,6 +8,21 @@
     display: none;
 }
 
+.admin-edit {
+    padding: 6px 9px;
+    border: 1px solid #bfd0e2;
+    border-radius: 3px;
+    background: #f5f9fd;
+    color: #315b82;
+    font-size: 9px;
+    white-space: nowrap;
+}
+
+.admin-edit:hover {
+    border-color: #6e91b2;
+    background: #eaf2f9;
+}
+
 .professional-header .header-cart > span:last-child {
     width: auto;
     height: auto;

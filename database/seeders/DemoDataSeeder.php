@@ -85,10 +85,7 @@ class DemoDataSeeder extends Seeder
             $inventory->on_hand = 12;
             $inventory->reserved = 0;
             $inventory->reorder_level = 3;
-            $inventory->save();            $product->images()->updateOrCreate(
-                ['path' => 'products/'.$data['slug'].'.jpg'],
-                ['alt_text' => $data['name'], 'position' => 0, 'is_primary' => true],
-            );
+            $inventory->save();
         }
 
         foreach ([

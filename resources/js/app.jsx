@@ -5,6 +5,22 @@ import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams
 const TOKEN_KEY = 'andre_shop_token';
 const money = (value) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'XAF', maximumFractionDigits: 0 }).format(Number(value || 0));
 const unwrap = (payload) => payload?.data ?? payload ?? [];
+const categoryImageFallbacks = {
+    'bureau-scolaire': '/images/categories/bureau-scolaire.jpg',
+    electronique: '/images/categories/electronique.jpg',
+    'equipement-professionnel': '/images/categories/equipement-professionnel.jpg',
+    'hygiene-entretien': '/images/categories/hygiene-entretien.jpg',
+    'maison-cuisine': '/images/categories/maison-cuisine.jpg',
+    mobilier: '/images/categories/mobilier.jpg'
+};
+const fallbackImages = Object.values(categoryImageFallbacks);
+const categoryFallback = (category, index = 0) => categoryImageFallbacks[category?.slug] || fallbackImages[index % fallbackImages.length];
+const productFallback = (product, index = 0) => categoryFallback(product?.category, index);
+const replaceBrokenImage = (fallback) => (event) => {
+    if (!fallback || event.currentTarget.dataset.fallbackApplied) return;
+    event.currentTarget.dataset.fallbackApplied = 'true';
+    event.currentTarget.src = fallback;
+};
 async function request(path, { token, ...options } = {}) {
     const headers = { Accept: 'application/json', ...(options.headers || {}) };
     let body = options.body;
@@ -116,7 +132,7 @@ function CategoryShowcase() {
         'mobilier': '/images/categories/mobilier.jpg'
     };
     const fallbackImages = Object.values(categoryImages);
-    return <section className="category-showcase"><div className="category-showcase-head"><div><p className="eyebrow">TROUVER VOTRE UNIVERS</p><h2>Quel espace souhaitez-vous <em>équiper ?</em></h2></div><Link to="/catalogue" className="text-link">Toutes les catégories <span>↗</span></Link></div><div className="category-cards">{categories.slice(0, 6).map((category, index) => { const image = category.image_url || categoryImages[category.slug] || fallbackImages[index % fallbackImages.length]; return <Link key={category.id || category.slug} to={'/catalogue?category=' + (category.slug || category.id)} className={'category-card category-tone-' + ((index % 4) + 1)}><span className="category-card-image"><img src={image} alt={category.name} loading="lazy" /></span><span className="category-card-content"><span className="category-card-icon">{['⌂','◈','▣','✦','◌','◇'][index % 6]}</span><strong>{category.name}</strong><small>Voir les produits <span>↗</span></small></span></Link>; })}</div></section>;
+    return <section className="category-showcase"><div className="category-showcase-head"><div><p className="eyebrow">TROUVER VOTRE UNIVERS</p><h2>Quel espace souhaitez-vous <em>équiper ?</em></h2></div><Link to="/catalogue" className="text-link">Toutes les catégories <span>↗</span></Link></div><div className="category-cards">{categories.slice(0, 6).map((category, index) => { const fallback = categoryFallback(category, index); const image = category.image_url || categoryImages[category.slug] || fallback; return <Link key={category.id || category.slug} to={'/catalogue?category=' + (category.slug || category.id)} className={'category-card category-tone-' + ((index % 4) + 1)}><span className="category-card-image"><img src={image} onError={replaceBrokenImage(fallback)} alt={category.name} loading="lazy" /></span><span className="category-card-content"><span className="category-card-icon">{['⌂','◈','▣','✦','◌','◇'][index % 6]}</span><strong>{category.name}</strong><small>Voir les produits <span>↗</span></small></span></Link>; })}</div></section>;
 }
 function TrustBar() { return <section className="trust-bar" id="engagement">{[['✦','Qualité vérifiée','Des marques et références choisies'],['⌁','Livraison partout','Douala, Yaoundé et tout le Cameroun'],['◉','Paiement sécurisé','Mobile Money avec Nokash'],['♡','Service de proximité','Une équipe à votre écoute']].map(([icon,title,copy]) => <div key={title}><span className="trust-icon">{icon}</span><strong>{title}</strong><small>{copy}</small></div>)}</section>; }
 function ServicesSection() {
@@ -149,13 +165,16 @@ function ProductGrid({ category, query }) {
 }
 function ProductCard({ product, index }) {
     const { addToCart } = useShop(); const image = product.images?.find((item) => item.is_primary)?.url || product.images?.[0]?.url || product.image_url;
-    return <article className="product-card"><Link to={`/produit/${product.slug || product.id}`} className={`product-visual tone-${(index % 4) + 1}`}>{image ? <img src={image} alt={product.name} /> : <ProductPlaceholder index={index} />}<span className="product-badge">{product.stock > 0 || product.is_available !== false ? 'DISPONIBLE' : 'ÉPUISÉ'}</span><span className="product-arrow">↗</span></Link><div className="product-info"><div><h3>{product.name}</h3><span className="product-category">{product.category?.name || 'Sélection André'}</span></div><div className="product-buy"><strong>{money(product.price)}</strong><button className="product-action" onClick={() => addToCart(product)} aria-label={`Ajouter ${product.name}`}>+</button></div></div></article>;
+    const fallback = productFallback(product, index);
+    return <article className="product-card"><Link to={`/produit/${product.slug || product.id}`} className={`product-visual tone-${(index % 4) + 1}`}>{image || fallback ? <img src={image || fallback} onError={replaceBrokenImage(fallback)} alt={product.name} /> : <ProductPlaceholder index={index} />}<span className="product-badge">{product.stock > 0 || product.is_available !== false ? 'DISPONIBLE' : 'ÉPUISÉ'}</span><span className="product-arrow">↗</span></Link><div className="product-info"><div><h3>{product.name}</h3><span className="product-category">{product.category?.name || 'Sélection André'}</span></div><div className="product-buy"><strong>{money(product.price)}</strong><button className="product-action" onClick={() => addToCart(product)} aria-label={`Ajouter ${product.name}`}>+</button></div></div></article>;
 }
 function ProductPlaceholder({ index = 0 }) { return <div className="placeholder-art"><span>{['OBJET','SOIN','MAISON','ESSENTIEL'][index % 4]}</span><b>ANDRÉ<br />SHOP</b><i></i></div>; }
 function ProductPage() {
     const { slug } = useParams(); const { products, addToCart } = useShop(); const product = products.find((item) => String(item.slug || item.id) === String(slug));
     if (!product) return <div className="page-state"><h1>Produit introuvable</h1><Link className="button button-dark" to="/catalogue">Retour au catalogue</Link></div>;
-    return <section className="product-page"><Link className="back-link" to="/catalogue">← Retour au catalogue</Link><div className="product-detail"><div className="detail-visual tone-2">{product.images?.[0]?.url ? <img src={product.images[0].url} alt={product.name} /> : <ProductPlaceholder index={1} />}</div><div className="detail-copy"><p className="eyebrow">{product.category?.name || 'SÉLECTION ANDRÉ'}</p><h1>{product.name}</h1><p className="detail-price">{money(product.price)}</p><p className="detail-description">{product.description || 'Une référence choisie avec soin pour sa qualité et sa simplicité d’usage.'}</p><div className="detail-meta"><span>✓ En stock</span><span>↗ Livraison au Cameroun</span></div><button className="button button-dark button-wide" onClick={() => addToCart(product)}>Ajouter au panier <span>＋</span></button><div className="detail-note">Paiement sécurisé · Retour sous 14 jours · Assistance 7j/7</div></div></div></section>;
+    const image = product.images?.find((item) => item.is_primary)?.url || product.images?.[0]?.url;
+    const fallback = productFallback(product, 1);
+    return <section className="product-page"><Link className="back-link" to="/catalogue">← Retour au catalogue</Link><div className="product-detail"><div className="detail-visual tone-2">{image || fallback ? <img src={image || fallback} onError={replaceBrokenImage(fallback)} alt={product.name} /> : <ProductPlaceholder index={1} />}</div><div className="detail-copy"><p className="eyebrow">{product.category?.name || 'SÉLECTION ANDRÉ'}</p><h1>{product.name}</h1><p className="detail-price">{money(product.price)}</p><p className="detail-description">{product.description || 'Une référence choisie avec soin pour sa qualité et sa simplicité d’usage.'}</p><div className="detail-meta"><span>✓ En stock</span><span>↗ Livraison au Cameroun</span></div><button className="button button-dark button-wide" onClick={() => addToCart(product)}>Ajouter au panier <span>＋</span></button><div className="detail-note">Paiement sécurisé · Retour sous 14 jours · Assistance 7j/7</div></div></div></section>;
 }
 function CartDrawer({ onClose }) {
     const { cart, updateCartItem } = useShop();
@@ -279,7 +298,7 @@ function AdminPage() {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [formTab, setFormTab] = useState(null);
+    const [formState, setFormState] = useState(null);
     const sections = [
         ['overview', 'Vue d ensemble', '¦'],
         ['products', 'Produits', '□'],
@@ -314,7 +333,7 @@ function AdminPage() {
     if (user.role !== 'admin') return <div className="admin-gate"><div className="admin-gate-card"><span className="brand-mark">!</span><p className="eyebrow">ACCES RESTREINT</p><h1>Cette zone est reservee aux administrateurs.</h1><p>Connectez-vous avec un compte disposant du role administrateur.</p><button className="button button-dark" onClick={logout}>Se deconnecter</button></div></div>;
     const changeSection = (key) => { setTab(key); setPage(1); setPagination(null); };
     const refresh = () => load(tab, tab === 'overview' ? 1 : page);
-    return <section className="admin-layout"><aside className="admin-sidebar"><Link to="/" className="admin-brand"><span className="brand-mark">A</span><span>andre<span>shop</span></span></Link><div className="admin-profile"><span className="admin-avatar">{(user.name || 'A').slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><small>Administrateur</small></div></div><nav className="admin-nav">{sections.map(([key, label, icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => changeSection(key)}><span>{icon}</span>{label}</button>)}</nav><button className="admin-logout" onClick={logout}>↪ Se deconnecter</button></aside><div className="admin-content"><header className="admin-topbar"><div><p className="eyebrow">ANDRE SHOP / ADMIN</p><h1>{sections.find(([key]) => key === tab)?.[1]}</h1></div><div className="admin-top-actions"><Link to="/" className="admin-view-store">Voir la boutique ↗</Link><button className="icon-button" onClick={refresh} aria-label="Actualiser">⟳</button></div></header>{error && <div className="admin-error">{error}</div>}{loading ? <div className="admin-loading"><span></span><span></span><span></span></div> : tab === 'overview' ? <AdminOverview stats={stats} money={money} /> : <AdminTable tab={tab} rows={data} pagination={pagination} onPageChange={setPage} token={token} refresh={refresh} money={money} notify={notify} onCreate={() => setFormTab(tab)} />}</div>{formTab && <AdminFormModal tab={formTab} token={token} onClose={() => setFormTab(null)} onSaved={() => { setFormTab(null); refresh(); }} notify={notify} />}</section>;
+    return <section className="admin-layout"><aside className="admin-sidebar"><Link to="/" className="admin-brand"><span className="brand-mark">A</span><span>andre<span>shop</span></span></Link><div className="admin-profile"><span className="admin-avatar">{(user.name || 'A').slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><small>Administrateur</small></div></div><nav className="admin-nav">{sections.map(([key, label, icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => changeSection(key)}><span>{icon}</span>{label}</button>)}</nav><button className="admin-logout" onClick={logout}>↪ Se deconnecter</button></aside><div className="admin-content"><header className="admin-topbar"><div><p className="eyebrow">ANDRE SHOP / ADMIN</p><h1>{sections.find(([key]) => key === tab)?.[1]}</h1></div><div className="admin-top-actions"><Link to="/" className="admin-view-store">Voir la boutique ↗</Link><button className="icon-button" onClick={refresh} aria-label="Actualiser">⟳</button></div></header>{error && <div className="admin-error">{error}</div>}{loading ? <div className="admin-loading"><span></span><span></span><span></span></div> : tab === 'overview' ? <AdminOverview stats={stats} money={money} /> : <AdminTable tab={tab} rows={data} pagination={pagination} onPageChange={setPage} token={token} refresh={refresh} money={money} notify={notify} onCreate={() => setFormState({ tab, item: null })} onEdit={(item) => setFormState({ tab, item })} />}</div>{formState && <AdminFormModal tab={formState.tab} item={formState.item} token={token} onClose={() => setFormState(null)} onSaved={() => { setFormState(null); refresh(); }} notify={notify} />}</section>;
 }
 function AdminOverview({ stats, money }) {
     const products = stats?.products || [], orders = stats?.orders || [], inventory = stats?.inventory || [], payments = stats?.payments || [];
@@ -323,7 +342,7 @@ function AdminOverview({ stats, money }) {
     return <div className="admin-overview"><div className="admin-welcome"><div><p className="eyebrow">RÉSUMÉ OPÉRATIONNEL</p><h2>Une vue claire pour décider vite.</h2><p>Suivez votre activité commerciale et les opérations prioritaires depuis un seul espace.</p></div><div className="admin-welcome-shape">A</div></div><div className="admin-kpis"><div><span>Produits actifs</span><strong>{products.length}</strong><small>Références au catalogue</small></div><div><span>Commandes</span><strong>{orders.length}</strong><small>Toutes périodes</small></div><div><span>Paiements confirmés</span><strong>{money(paid)}</strong><small>Transactions réussies</small></div><div className={lowStock.length ? 'warning' : ''}><span>Alertes stock</span><strong>{lowStock.length}</strong><small>{lowStock.length ? 'À réapprovisionner' : 'Tout est sous contrôle'}</small></div></div><div className="admin-panels"><div className="admin-panel"><div className="panel-heading"><div><p className="eyebrow">ACTIVITÉ RÉCENTE</p><h3>Dernières commandes</h3></div><span>↗</span></div>{orders.slice(0, 5).map((order) => <div className="admin-list-row" key={order.id}><div><strong>{order.number}</strong><small>{order.user?.name || 'Client'}</small></div><span className={`status status-${order.status}`}>{formatStatus(order.status)}</span><b>{money(order.total)}</b></div>)}{!orders.length && <p className="admin-muted">Aucune commande pour le moment.</p>}</div><div className="admin-panel"><div className="panel-heading"><div><p className="eyebrow">VIGILANCE</p><h3>Stock à surveiller</h3></div><span>◫</span></div>{lowStock.slice(0, 5).map((item) => <div className="admin-list-row" key={item.id}><div><strong>{item.name || item.sku}</strong><small>{item.sku || 'Produit'}</small></div><span className="status status-warning">{item.available} disponible{item.available > 1 ? 's' : ''}</span></div>)}{!lowStock.length && <p className="admin-muted">Aucune alerte de stock.</p>}</div></div></div>;
 }
 function formatStatus(value) { return String(value || '').replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase()); }
-function AdminTable({ tab, rows, pagination, onPageChange, token, refresh, money, notify, onCreate }) {
+function AdminTable({ tab, rows, pagination, onPageChange, token, refresh, money, notify, onCreate, onEdit }) {
     const titles = {
         products: ['Produit', 'Categorie', 'Prix', 'Etat'],
         categories: ['Categorie', 'Slug', 'Description', 'Etat'],
@@ -391,8 +410,8 @@ function AdminTable({ tab, rows, pagination, onPageChange, token, refresh, money
                 <table className="admin-table">
                     <thead><tr>{titles[tab].map((title) => <th key={title}>{title}</th>)}{hasActions && <th>Actions</th>}</tr></thead>
                     <tbody>{rows.map((row) => <tr key={row.id}>
-                        {tab === 'products' && <><td><div className="admin-entity-cell"><span className="admin-entity-thumbnail">{(row.images?.find((image) => image.is_primary)?.url || row.images?.[0]?.url || row.image_url) ? <img src={row.images?.find((image) => image.is_primary)?.url || row.images?.[0]?.url || row.image_url} alt={row.name} loading="lazy" /> : <span aria-hidden="true">A</span>}</span><span className="admin-entity-copy"><strong>{row.name}</strong><small>{row.sku}</small></span></div></td><td>{row.category?.name || '—'}</td><td>{money(row.price)}</td><td><span className={'status ' + (row.is_active === false ? 'status-cancelled' : 'status-success')}>{row.is_active === false ? 'Inactif' : 'Actif'}</span></td></>}
-                        {tab === 'categories' && <><td><div className="admin-entity-cell"><span className="admin-entity-thumbnail">{row.image_url ? <img src={row.image_url} alt={row.name} loading="lazy" /> : <span aria-hidden="true">A</span>}</span><span className="admin-entity-copy"><strong>{row.name}</strong></span></div></td><td><small>{row.slug || '—'}</small></td><td>{row.description || '—'}</td><td><span className={'status ' + (row.is_active === false ? 'status-cancelled' : 'status-success')}>{row.is_active === false ? 'Inactive' : 'Active'}</span></td></>}
+                        {tab === 'products' && <><td><div className="admin-entity-cell"><span className="admin-entity-thumbnail">{(() => { const fallback = productFallback(row); const image = row.images?.find((item) => item.is_primary)?.url || row.images?.[0]?.url || row.image_url || fallback; return image ? <img src={image} onError={replaceBrokenImage(fallback)} alt={row.name} loading="lazy" /> : <span aria-hidden="true">A</span>; })()}</span><span className="admin-entity-copy"><strong>{row.name}</strong><small>{row.sku}</small></span></div></td><td>{row.category?.name || '—'}</td><td>{money(row.price)}</td><td><span className={'status ' + (row.is_active === false ? 'status-cancelled' : 'status-success')}>{row.is_active === false ? 'Inactif' : 'Actif'}</span></td></>}
+                        {tab === 'categories' && <><td><div className="admin-entity-cell"><span className="admin-entity-thumbnail">{(() => { const fallback = categoryFallback(row); const image = row.image_url || fallback; return image ? <img src={image} onError={replaceBrokenImage(fallback)} alt={row.name} loading="lazy" /> : <span aria-hidden="true">A</span>; })()}</span><span className="admin-entity-copy"><strong>{row.name}</strong></span></div></td><td><small>{row.slug || '—'}</small></td><td>{row.description || '—'}</td><td><span className={'status ' + (row.is_active === false ? 'status-cancelled' : 'status-success')}>{row.is_active === false ? 'Inactive' : 'Active'}</span></td></>}
                         {tab === 'orders' && <><td><strong>{row.number}</strong><small>{row.placed_at ? new Date(row.placed_at).toLocaleDateString('fr-FR') : '—'}</small></td><td>{row.user?.name || 'Client'}</td><td>{money(row.total)}</td><td><select className="status-select" value={row.status} onChange={(e) => updateStatus(row.id, e.target.value)}>{statusOptions.orders.map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></td></>}
                         {tab === 'inventory' && <><td><strong>{row.name || '—'}</strong><small>{row.stockable_type === 'variant' ? 'Variante' : 'Produit'}</small></td><td>{row.sku || '—'}</td><td><strong>{row.available}</strong> / {row.on_hand}<small>{row.reserved} reserve{row.reserved > 1 ? 's' : ''}</small></td><td>{row.reorder_level}{row.is_low_stock && <span className="status status-warning admin-low-stock">Faible</span>}</td></>}
                         {tab === 'payments' && <><td><strong>{row.reference}</strong><small>{row.provider || 'nokash'}</small></td><td>{row.order?.number || '—'}</td><td>{money(row.amount)}</td><td><span className={'status status-' + row.status}>{formatStatus(row.status)}</span></td></>}
@@ -400,7 +419,7 @@ function AdminTable({ tab, rows, pagination, onPageChange, token, refresh, money
                         {tab === 'quotes' && <><td><strong>{row.reference}</strong><small>{row.requested_at ? new Date(row.requested_at).toLocaleDateString('fr-FR') : '—'}</small></td><td>{row.supplier?.name || '—'}</td><td>{money(row.total)}</td><td><select className="status-select" value={row.status} onChange={(e) => updateStatus(row.id, e.target.value)}>{statusOptions.quotes.map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></td></>}
                         {tab === 'deliveries' && <><td><strong>{row.tracking_number || 'Non attribue'}</strong><small>{row.provider || 'Transport interne'}</small></td><td>{row.order?.number || '—'}</td><td>{row.recipient_name || '—'}</td><td><select className="status-select" value={row.status} onChange={(e) => updateStatus(row.id, e.target.value)}>{statusOptions.deliveries.map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></td></>}
                         {tab === 'inventory' && <td><div className="admin-stock-actions"><button className="admin-stock-action admin-stock-receive" onClick={() => setStockAction({ item: row, mode: 'receive' })}>Réception</button><button className="admin-stock-action admin-stock-adjust" onClick={() => setStockAction({ item: row, mode: 'adjust' })}>Ajuster</button></div></td>}
-                        {canCreate && <td><div className="admin-row-actions">{['categories', 'products'].includes(tab) && <button disabled={activeAction === row.id} className={'admin-toggle ' + (row.is_active === false ? 'admin-toggle-activate' : 'admin-toggle-deactivate')} onClick={() => toggleActive(row)}>{activeAction === row.id ? 'Patientez...' : row.is_active === false ? 'Activer' : 'Desactiver'}</button>}<button className="admin-delete" onClick={() => remove(row)}>Supprimer</button></div></td>}
+                        {canCreate && <td><div className="admin-row-actions">{['categories', 'products'].includes(tab) && <><button className="admin-edit" onClick={() => onEdit(row)}>Modifier</button><button disabled={activeAction === row.id} className={'admin-toggle ' + (row.is_active === false ? 'admin-toggle-activate' : 'admin-toggle-deactivate')} onClick={() => toggleActive(row)}>{activeAction === row.id ? 'Patientez...' : row.is_active === false ? 'Activer' : 'Desactiver'}</button></>}<button className="admin-delete" onClick={() => remove(row)}>Supprimer</button></div></td>}
                     </tr>)}</tbody>
                 </table>
             </div>
@@ -471,19 +490,30 @@ function StockActionModal({ item, mode, token, notify, onClose, onSaved }) {
         </div>
     </div>;
 }
-function AdminFormModal({ tab, token, onClose, onSaved, notify }) {
-    const initial = {
+function AdminFormModal({ tab, item, token, onClose, onSaved, notify }) {
+    const editing = Boolean(item);
+    const defaults = {
         categories: { name: '', description: '', is_active: true },
         products: { category_id: '', name: '', sku: '', price: '', initial_stock: '0', reorder_level: '3', description: '', is_active: true },
         suppliers: { name: '', contact_name: '', email: '', phone: '', address: '', notes: '', is_active: true }
     };
-    const [values, setValues] = useState(initial[tab] || {});
+    const initial = editing ? {
+        ...defaults[tab],
+        ...item,
+        category_id: item.category?.id || item.category_id || '',
+        price: item.price ?? '',
+        is_active: item.is_active !== false
+    } : defaults[tab] || {};
+    const currentImage = tab === 'categories'
+        ? item?.image_url || categoryFallback(item)
+        : item?.images?.find((image) => image.is_primary)?.url || item?.images?.[0]?.url || productFallback(item);
+    const [values, setValues] = useState(initial);
     const [categories, setCategories] = useState([]);
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
     const [imageFile, setImageFile] = useState(null);
-    const [imagePreview, setImagePreview] = useState('');
-    useEffect(() => () => { if (imagePreview) URL.revokeObjectURL(imagePreview); }, [imagePreview]);
+    const [imagePreview, setImagePreview] = useState(currentImage || '');
+    useEffect(() => () => { if (imagePreview.startsWith('blob:')) URL.revokeObjectURL(imagePreview); }, [imagePreview]);
     useEffect(() => { if (tab === 'products') request('/admin/categories', { token }).then((result) => setCategories(unwrap(result))).catch(() => setCategories([])); }, [tab, token]);
     const update = (key) => (event) => { const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value; setValues((current) => ({ ...current, [key]: value })); };
     const handleImageChange = (event) => { const file = event.target.files?.[0] || null; setImageFile(file); setImagePreview(file ? URL.createObjectURL(file) : ''); };
@@ -508,22 +538,27 @@ function AdminFormModal({ tab, token, onClose, onSaved, notify }) {
                 categoryPayload.append('description', payload.description || '');
                 categoryPayload.append('is_active', payload.is_active ? '1' : '0');
                 categoryPayload.append('image', imageFile);
+                if (editing) categoryPayload.append('_method', 'PATCH');
                 requestBody = categoryPayload;
             }
-            const result = await request('/admin/' + tab, { method: 'POST', token, body: requestBody });
+            const endpoint = '/admin/' + tab + (editing ? '/' + item.slug : '');
+            const method = editing && !(tab === 'categories' && imageFile) ? 'PATCH' : 'POST';
+            const result = await request(endpoint, { method, token, body: requestBody });
             if (tab === 'products') {
                 const product = unwrap(result);
-                await request('/admin/inventory', {
-                    method: 'POST',
-                    token,
-                    body: {
-                        product_id: product.id,
-                        on_hand: Number(payload.initial_stock),
-                        reorder_level: Number(payload.reorder_level),
-                        reason: 'Stock initial produit',
-                        reference: payload.sku
-                    }
-                });
+                if (!editing) {
+                    await request('/admin/inventory', {
+                        method: 'POST',
+                        token,
+                        body: {
+                            product_id: product.id,
+                            on_hand: Number(payload.initial_stock),
+                            reorder_level: Number(payload.reorder_level),
+                            reason: 'Stock initial produit',
+                            reference: payload.sku
+                        }
+                    });
+                }
                 if (imageFile) {
                     const imagePayload = new FormData();
                     imagePayload.append('image', imageFile);
@@ -532,13 +567,19 @@ function AdminFormModal({ tab, token, onClose, onSaved, notify }) {
                     await request('/admin/products/' + product.slug + '/images', { method: 'POST', token, body: imagePayload });
                 }
             }
-            notify(tab === 'products' ? (imageFile ? 'Produit, stock et image enregistres.' : 'Produit et stock initial crees.') : tab === 'categories' ? (imageFile ? 'Categorie et image enregistrees.' : 'Categorie creee.') : 'Fournisseur cree.');
+            notify(editing
+                ? (tab === 'products' ? 'Produit modifie.' : 'Categorie modifiee.')
+                : tab === 'products'
+                    ? (imageFile ? 'Produit, stock et image enregistres.' : 'Produit et stock initial crees.')
+                    : tab === 'categories'
+                        ? (imageFile ? 'Categorie et image enregistrees.' : 'Categorie creee.')
+                        : 'Fournisseur cree.');
             onSaved();
         } catch (e) {
             setError(e.message);
         } finally {
             setSaving(false);
         }
-    };    const title = tab === 'products' ? 'Ajouter un produit' : tab === 'categories' ? 'Ajouter une categorie' : 'Ajouter un fournisseur';
-    return <div className="overlay admin-modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="admin-form-modal" role="dialog" aria-modal="true" aria-labelledby="admin-form-title"><div className="drawer-head"><div><p className="eyebrow">NOUVEL ELEMENT</p><h2 id="admin-form-title">{title}</h2></div><button className="close-button" onClick={onClose} aria-label="Fermer">×</button></div><form className="admin-form" onSubmit={submit}>{tab === 'categories' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Description<textarea rows="3" value={values.description} onChange={update('description')} /></label><label className="full image-upload-field">Image de la catégorie<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />{imagePreview ? <span className="image-preview"><img src={imagePreview} alt="Aperçu de la catégorie" /></span> : <span className="image-preview-empty">Aperçu de l’image disponible après sélection</span>}{imageFile && <small className="image-file-name">{imageFile.name}</small>}</label></>}{tab === 'products' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Categorie<select value={values.category_id} onChange={update('category_id')}><option value="">Sans categorie</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>Prix (FCFA)<input required min="0" step="1" type="number" value={values.price} onChange={update('price')} /></label><label>Quantite initiale<input required min="0" step="1" type="number" value={values.initial_stock} onChange={update('initial_stock')} /></label><label>Seuil d'alerte<input required min="0" step="1" type="number" value={values.reorder_level} onChange={update('reorder_level')} /></label><label className="full image-upload-field">Image du produit<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />{imagePreview ? <span className="image-preview"><img src={imagePreview} alt="Aperçu du produit" /></span> : <span className="image-preview-empty">Aperçu de l’image disponible après sélection</span>}{imageFile && <small className="image-file-name">{imageFile.name}</small>}</label><label className="full">Description<textarea rows="3" value={values.description} onChange={update('description')} /></label></>}{tab === 'suppliers' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Contact<input value={values.contact_name} onChange={update('contact_name')} /></label><label>Email<input type="email" value={values.email} onChange={update('email')} /></label><label>Telephone<input value={values.phone} onChange={update('phone')} /></label><label className="full">Adresse<textarea rows="2" value={values.address} onChange={update('address')} /></label><label className="full">Notes<textarea rows="2" value={values.notes} onChange={update('notes')} /></label></>}<label className="admin-checkbox"><input type="checkbox" checked={values.is_active} onChange={update('is_active')} /> Element actif</label>{error && <p className="form-error">{error}</p>}<div className="admin-form-actions"><button type="button" className="button button-light" onClick={onClose}>Annuler</button><button disabled={saving} className="button button-dark">{saving ? 'Enregistrement...' : 'Enregistrer'} <span>↗</span></button></div></form></div></div>;
+    };    const title = editing ? (tab === 'products' ? 'Modifier le produit' : 'Modifier la categorie') : tab === 'products' ? 'Ajouter un produit' : tab === 'categories' ? 'Ajouter une categorie' : 'Ajouter un fournisseur';
+    return <div className="overlay admin-modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="admin-form-modal" role="dialog" aria-modal="true" aria-labelledby="admin-form-title"><div className="drawer-head"><div><p className="eyebrow">{editing ? 'MODIFICATION' : 'NOUVEL ELEMENT'}</p><h2 id="admin-form-title">{title}</h2></div><button className="close-button" onClick={onClose} aria-label="Fermer">×</button></div><form className="admin-form" onSubmit={submit}>{tab === 'categories' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Description<textarea rows="3" value={values.description} onChange={update('description')} /></label><label className="full image-upload-field">Image de la catégorie<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />{imagePreview ? <span className="image-preview"><img src={imagePreview} onError={replaceBrokenImage(categoryFallback(item))} alt="Aperçu de la catégorie" /></span> : <span className="image-preview-empty">Aperçu de l’image disponible après sélection</span>}{imageFile && <small className="image-file-name">{imageFile.name}</small>}</label></>}{tab === 'products' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Categorie<select value={values.category_id} onChange={update('category_id')}><option value="">Sans categorie</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>Prix (FCFA)<input required min="0" step="1" type="number" value={values.price} onChange={update('price')} /></label>{!editing && <><label>Quantite initiale<input required min="0" step="1" type="number" value={values.initial_stock} onChange={update('initial_stock')} /></label><label>Seuil d'alerte<input required min="0" step="1" type="number" value={values.reorder_level} onChange={update('reorder_level')} /></label></>}<label className="full image-upload-field">Image du produit<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />{imagePreview ? <span className="image-preview"><img src={imagePreview} onError={replaceBrokenImage(productFallback(item))} alt="Aperçu du produit" /></span> : <span className="image-preview-empty">Aperçu de l’image disponible après sélection</span>}{imageFile && <small className="image-file-name">{imageFile.name}</small>}</label><label className="full">Description<textarea rows="3" value={values.description} onChange={update('description')} /></label></>}{tab === 'suppliers' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Contact<input value={values.contact_name} onChange={update('contact_name')} /></label><label>Email<input type="email" value={values.email} onChange={update('email')} /></label><label>Telephone<input value={values.phone} onChange={update('phone')} /></label><label className="full">Adresse<textarea rows="2" value={values.address} onChange={update('address')} /></label><label className="full">Notes<textarea rows="2" value={values.notes} onChange={update('notes')} /></label></>}<label className="admin-checkbox"><input type="checkbox" checked={values.is_active} onChange={update('is_active')} /> Element actif</label>{error && <p className="form-error">{error}</p>}<div className="admin-form-actions"><button type="button" className="button button-light" onClick={onClose}>Annuler</button><button disabled={saving} className="button button-dark">{saving ? 'Enregistrement...' : editing ? 'Enregistrer les modifications' : 'Enregistrer'} <span>↗</span></button></div></form></div></div>;
 }

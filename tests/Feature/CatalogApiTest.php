@@ -7,6 +7,8 @@ use App\Domain\Catalog\Models\Product;
 use App\Domain\User\Enums\UserRole;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class CatalogApiTest extends TestCase
@@ -272,6 +274,62 @@ class CatalogApiTest extends TestCase
                 'name' => 'Invalid update',
             ])
             ->assertNotFound();
+    }
+
+    public function test_admin_can_edit_a_category_and_replace_its_image(): void
+    {
+        Storage::fake('public');
+        $token = $this->adminToken();
+        $category = Category::query()->create([
+            'name' => 'Initial category',
+            'slug' => 'initial-category',
+            'image_path' => 'categories/old.jpg',
+        ]);
+        Storage::disk('public')->put('categories/old.jpg', 'old-image');
+
+        $response = $this->withToken($token)->post('/api/admin/categories/initial-category', [
+            '_method' => 'PATCH',
+            'name' => 'Updated category',
+            'description' => 'Updated description',
+            'is_active' => '1',
+            'image' => UploadedFile::fake()->image('updated.jpg'),
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Updated category')
+            ->assertJsonPath('data.slug', 'updated-category');
+
+        Storage::disk('public')->assertMissing('categories/old.jpg');
+        Storage::disk('public')->assertExists($category->fresh()->image_path);
+    }
+
+    public function test_admin_product_image_upload_replaces_the_previous_primary_file(): void
+    {
+        Storage::fake('public');
+        $token = $this->adminToken();
+        $product = Product::query()->create([
+            'name' => 'Image product',
+            'slug' => 'image-product',
+            'sku' => 'IMAGE-1',
+            'price' => 100,
+        ]);
+        $oldImage = $product->images()->create([
+            'path' => 'products/old.jpg',
+            'is_primary' => true,
+        ]);
+        Storage::disk('public')->put('products/old.jpg', 'old-image');
+
+        $response = $this->withToken($token)->post('/api/admin/products/image-product/images', [
+            'image' => UploadedFile::fake()->image('updated.jpg'),
+            'alt_text' => 'Updated product',
+            'is_primary' => '1',
+        ]);
+
+        $response->assertCreated()->assertJsonPath('data.is_primary', true);
+        Storage::disk('public')->assertMissing('products/old.jpg');
+        Storage::disk('public')->assertExists($response->json('data.path'));
+        $this->assertDatabaseMissing('product_images', ['id' => $oldImage->id]);
     }
 
     private function adminToken(): string

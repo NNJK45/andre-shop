@@ -10,6 +10,7 @@ use App\Http\Requests\Admin\ProductImageRequest;
 use App\Http\Resources\ProductImageResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Storage;
 
 class ProductImageController extends Controller
 {
@@ -19,8 +20,10 @@ class ProductImageController extends Controller
         CatalogService $catalog,
     ): JsonResponse {
         $attributes = $request->validated();
+        $previousPrimaryImage = null;
 
         if ($request->hasFile('image')) {
+            $previousPrimaryImage = $product->images()->where('is_primary', true)->first();
             $attributes['path'] = $request->file('image')->store('products', 'public');
         }
 
@@ -28,6 +31,11 @@ class ProductImageController extends Controller
         $attributes['is_primary'] = $attributes['is_primary'] ?? true;
 
         $image = $catalog->createImage($product, $attributes);
+
+        if ($previousPrimaryImage && $previousPrimaryImage->isNot($image)) {
+            Storage::disk('public')->delete($previousPrimaryImage->path);
+            $previousPrimaryImage->delete();
+        }
 
         return (new ProductImageResource($image))
             ->response()
