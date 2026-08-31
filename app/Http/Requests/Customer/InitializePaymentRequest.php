@@ -25,6 +25,21 @@ class InitializePaymentRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        $phone = $this->input('user_phone');
+        $method = $this->input('payment_method');
+
+        if (is_string($phone)) {
+            $digits = preg_replace('/\D+/', '', $phone);
+            if (is_string($digits) && strlen($digits) === 9) {
+                $digits = '237'.$digits;
+            }
+            $this->merge(['user_phone' => $digits]);
+        }
+
+        if (is_string($method)) {
+            $this->merge(['payment_method' => strtoupper(trim($method))]);
+        }
+
         if ($this->hasHeader('Idempotency-Key')) {
             $this->merge([
                 'idempotency_key' => $this->header('Idempotency-Key'),

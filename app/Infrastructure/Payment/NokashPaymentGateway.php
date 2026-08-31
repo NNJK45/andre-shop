@@ -18,9 +18,11 @@ class NokashPaymentGateway implements PaymentGateway
         $phone = $metadata['user_phone'] ?? null;
         $method = $metadata['payment_method'] ?? null;
 
-        if (! $phone || ! in_array($method, ['MTN_MOMO', 'ORANGE_MONEY'], true)) {
+        if (! is_string($phone) || ! preg_match('/^237[0-9]{9}$/', $phone) || ! in_array($method, ['MTN_MOMO', 'ORANGE_MONEY'], true)) {
             throw new RuntimeException('NoKash PayIn requires a Cameroon phone number and MTN_MOMO or ORANGE_MONEY.');
         }
+
+        $this->ensureConfiguration();
 
         $payload = [
             'i_space_key' => config('payments.nokash.i_space_key'),
@@ -57,7 +59,7 @@ class NokashPaymentGateway implements PaymentGateway
         $data = $body['data'];
 
         return new PaymentInitialization(
-            providerReference: (string) $data['id'],
+            providerReference: $this->requiredString($data, 'id', 'PayIn'),
             metadata: array_merge($metadata, [
                 'nokash' => $body,
                 'nokash_status' => $data['status'] ?? null,
@@ -67,6 +69,12 @@ class NokashPaymentGateway implements PaymentGateway
 
     public function status(Payment $payment): PaymentStatusResult
     {
+        $this->ensureConfiguration();
+
+        if (! $payment->provider_reference) {
+            throw new RuntimeException('NoKash status check requires a provider reference.');
+        }
+
         $response = Http::asJson()
             ->acceptJson()
             ->timeout(config('payments.nokash.timeout_seconds'))
@@ -87,10 +95,10 @@ class NokashPaymentGateway implements PaymentGateway
         $data = $body['data'];
 
         return new PaymentStatusResult(
-            providerReference: (string) $data['id'],
-            merchantReference: (string) ($data['orderId'] ?? ''),
+            providerReference: $this->requiredString($data, 'id', 'status'),
+            merchantReference: $this->requiredString($data, 'orderId', 'status'),
             status: $this->mapStatus((string) ($data['status'] ?? '')),
-            amount: (string) $data['amount'],
+            amount: $this->requiredString($data, 'amount', 'status'),
             payload: $body,
         );
     }
@@ -104,5 +112,25 @@ class NokashPaymentGateway implements PaymentGateway
             'CANCELED' => PaymentStatus::Cancelled,
             default => throw new RuntimeException('Unknown NoKash payment status: '.$status),
         };
+    }
+
+    private function ensureConfiguration(): void
+    {
+        foreach (['payin_url', 'status_url', 'i_space_key', 'app_space_key'] as $key) {
+            $value = config("payments.nokash.{$key}");
+
+            if (! is_string($value) || trim($value) === '') {
+                throw new RuntimeException("NoKash configuration is incomplete: {$key} is missing.");
+            }
+        }
+    }
+
+    private function requiredString(array $data, string $key, string $operation): string
+    {
+        if (! array_key_exists($key, $data) || $data[$key] === null || $data[$key] === '') {
+            throw new RuntimeException("NoKash {$operation} response is missing {$key}.");
+        }
+
+        return (string) $data[$key];
     }
 }

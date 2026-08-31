@@ -84,9 +84,59 @@ class NokashPayinIntegrationTest extends TestCase
                 && $request['country'] === 'CM'
                 && $request['payment_method'] === 'MTN_MOMO'
                 && (float) $request['amount'] === 12500.0
-                && $request['user_data']['user_phone'] === '+237690000000'
+                && $request['user_data']['user_phone'] === '237690000000'
                 && $request['callback_url'] === 'https://shop.test/api/webhooks/nokash';
         });
+    }
+
+    public function test_orange_money_is_sent_as_a_distinct_nokash_payment_method(): void
+    {
+        Http::fake([
+            config('payments.nokash.payin_url') => Http::response([
+                'status' => 'REQUEST_OK',
+                'data' => [
+                    'id' => 'NK-ORANGE-001',
+                    'status' => 'PENDING',
+                    'amount' => 6500,
+                    'orderId' => 'PAY-REFERENCE',
+                    'phone' => '237690000000',
+                ],
+            ]),
+        ]);
+
+        [$customer, $token] = $this->customer();
+        $order = $this->order($customer, 6500);
+
+        $this->withToken($token)->postJson(
+            "/api/customer/orders/{$order->number}/payments",
+            [
+                'payment_method' => 'orange_money',
+                'user_phone' => '690 000 000',
+            ],
+        )->assertCreated()
+            ->assertJsonPath('data.provider_reference', 'NK-ORANGE-001');
+
+        Http::assertSent(fn (Request $request): bool => $request['payment_method'] === 'ORANGE_MONEY'
+            && $request['user_data']['user_phone'] === '237690000000');
+
+        $payment = Payment::query()->where('provider_reference', 'NK-ORANGE-001')->firstOrFail();
+        $this->assertSame('ORANGE_MONEY', $payment->metadata['payment_method']);
+        $this->assertSame('237690000000', $payment->metadata['user_phone']);
+    }
+
+    public function test_nokash_rejects_an_unknown_mobile_money_method(): void
+    {
+        [$customer, $token] = $this->customer();
+        $order = $this->order($customer, 6500);
+
+        $this->withToken($token)->postJson(
+            "/api/customer/orders/{$order->number}/payments",
+            ['payment_method' => 'MOBILE_MONEY', 'user_phone' => '690000000'],
+        )->assertUnprocessable()
+            ->assertJsonValidationErrors('payment_method');
+
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('payments', 0);
     }
 
     public function test_nokash_callback_revalidates_status_and_confirms_order_idempotently(): void
