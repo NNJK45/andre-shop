@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Application\Payment\Contracts\PaymentGateway;
 use App\Infrastructure\Payment\FakePaymentGateway;
 use App\Infrastructure\Payment\NokashPaymentGateway;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 
@@ -29,6 +30,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        if ($this->app->environment('production')) {
+            URL::forceScheme('https');
+        }
     }
 }
