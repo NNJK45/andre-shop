@@ -1,0 +1,96 @@
+name: Test and deploy to Azure
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: andre-shop-production
+  cancel-in-progress: false
+
+env:
+  AZURE_WEBAPP_NAME: sunday-events-api-test-2026
+  AZURE_CLIENT_ID: 0a813cc8-abbc-4d95-98c9-8b85fa1a9890
+  AZURE_TENANT_ID: b3bd0a9c-52f1-4651-bda1-3807ac4dd934
+  AZURE_SUBSCRIPTION_ID: a040e45f-59ee-4fae-a90b-10e365166a64
+
+jobs:
+  test-build-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_sqlite, sqlite3
+          coverage: none
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare test environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run application tests
+        run: php artisan test
+
+      - name: Prepare production dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Create deployment package
+        run: |
+          rm -f .env public/hot
+          zip -qr deployment.zip . \
+            -x '.git/*' \
+               '.github/*' \
+               'node_modules/*' \
+               'storage/logs/*' \
+               'tests/*' \
+               'tmp/*' \
+               '.phpunit.result.cache'
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: deployment.zip
+
+      - name: Verify deployed application
+        run: |
+          curl --fail --silent --show-error \
+            --retry 12 \
+            --retry-delay 10 \
+            --retry-all-errors \
+            "https://sunday-events-api-test-2026-avcac7amf2dwfmh4.francecentral-01.azurewebsites.net/"
