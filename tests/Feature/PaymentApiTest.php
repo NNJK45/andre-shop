@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Application\Payment\PaymentService;
+use App\Application\Payment\Contracts\PaymentGateway;
 use App\Domain\Order\Enums\OrderStatus;
 use App\Domain\Order\Models\Order;
 use App\Domain\Payment\Enums\PaymentStatus;
@@ -16,6 +17,13 @@ class PaymentApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['payments.driver' => 'fake']);
+        $this->app->forgetInstance(PaymentGateway::class);
+    }
+
     public function test_payment_routes_require_authentication(): void
     {
         $this->postJson('/api/customer/orders/ORD-UNKNOWN/payments')->assertUnauthorized();
@@ -28,7 +36,7 @@ class PaymentApiTest extends TestCase
         $order = $this->order($customer, 12500);
 
         $this->withToken($token)
-            ->postJson("/api/customer/orders/{$order->number}/payments", [], [
+            ->postJson("/api/customer/orders/{$order->number}/payments", $this->paymentData(), [
                 'Idempotency-Key' => 'checkout-attempt-001',
             ])
             ->assertCreated()
@@ -55,11 +63,11 @@ class PaymentApiTest extends TestCase
         $headers = ['Idempotency-Key' => 'same-attempt'];
 
         $firstReference = $this->withToken($token)
-            ->postJson("/api/customer/orders/{$order->number}/payments", [], $headers)
+            ->postJson("/api/customer/orders/{$order->number}/payments", $this->paymentData(), $headers)
             ->json('data.reference');
 
         $secondReference = $this->withToken($token)
-            ->postJson("/api/customer/orders/{$order->number}/payments", [], $headers)
+            ->postJson("/api/customer/orders/{$order->number}/payments", $this->paymentData(), $headers)
             ->assertCreated()
             ->json('data.reference');
 
@@ -72,14 +80,14 @@ class PaymentApiTest extends TestCase
         [$owner, $ownerToken] = $this->customer();
         $order = $this->order($owner, 5000);
         $reference = $this->withToken($ownerToken)
-            ->postJson("/api/customer/orders/{$order->number}/payments")
+            ->postJson("/api/customer/orders/{$order->number}/payments", $this->paymentData())
             ->json('data.reference');
 
         [, $otherToken] = $this->customer();
         $this->app['auth']->forgetGuards();
 
         $this->withToken($otherToken)
-            ->postJson("/api/customer/orders/{$order->number}/payments")
+            ->postJson("/api/customer/orders/{$order->number}/payments", $this->paymentData())
             ->assertNotFound();
 
         $this->withToken($otherToken)
@@ -93,7 +101,7 @@ class PaymentApiTest extends TestCase
         $order = $this->order($customer, 5000, OrderStatus::Paid);
 
         $this->withToken($token)
-            ->postJson("/api/customer/orders/{$order->number}/payments")
+            ->postJson("/api/customer/orders/{$order->number}/payments", $this->paymentData())
             ->assertUnprocessable()
             ->assertJsonValidationErrors('order');
 
@@ -105,7 +113,7 @@ class PaymentApiTest extends TestCase
         [$customer, $token] = $this->customer();
         $order = $this->order($customer, 8000);
         $reference = $this->withToken($token)
-            ->postJson("/api/customer/orders/{$order->number}/payments")
+            ->postJson("/api/customer/orders/{$order->number}/payments", $this->paymentData())
             ->json('data.reference');
         $payment = Payment::query()->where('reference', $reference)->firstOrFail();
         $service = app(PaymentService::class);
@@ -135,7 +143,7 @@ class PaymentApiTest extends TestCase
         [$customer, $token] = $this->customer();
         $order = $this->order($customer, 8000);
         $reference = $this->withToken($token)
-            ->postJson("/api/customer/orders/{$order->number}/payments")
+            ->postJson("/api/customer/orders/{$order->number}/payments", $this->paymentData())
             ->json('data.reference');
         $payment = Payment::query()->where('reference', $reference)->firstOrFail();
         $service = app(PaymentService::class);
@@ -155,7 +163,7 @@ class PaymentApiTest extends TestCase
         $order = $this->order($customer, 5000);
 
         $this->withToken($customerToken)
-            ->postJson("/api/customer/orders/{$order->number}/payments")
+            ->postJson("/api/customer/orders/{$order->number}/payments", $this->paymentData())
             ->assertCreated();
 
         $this->withToken($customerToken)
@@ -168,6 +176,14 @@ class PaymentApiTest extends TestCase
             ->getJson('/api/admin/payments')
             ->assertOk()
             ->assertJsonCount(1, 'data');
+    }
+
+    private function paymentData(): array
+    {
+        return [
+            'payment_method' => 'MTN_MOMO',
+            'user_phone' => '237690000000',
+        ];
     }
 
     private function order(

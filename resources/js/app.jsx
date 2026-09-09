@@ -46,9 +46,12 @@ function ShopProvider({ children }) {
     const [user, setUser] = useState(null);
     const [cart, setCart] = useState(null);
     const [toast, setToast] = useState(null);
+    const [pendingActions, setPendingActions] = useState({});
     const [authOpen, setAuthOpen] = useState(false);
     const [cartOpen, setCartOpen] = useState(false);
-    const notify = (message, tone = 'success') => { setToast({ message, tone }); window.setTimeout(() => setToast(null), 3500); };
+    const notify = (message, tone = 'success') => { setToast({ id: Date.now(), message, tone }); };
+    const setPending = (key, pending) => setPendingActions((current) => ({ ...current, [key]: pending }));
+    const isPending = (key) => Boolean(pendingActions[key]);
     const loadCatalog = async () => {
         setLoading(true); setCatalogError('');
         try {
@@ -61,6 +64,21 @@ function ShopProvider({ children }) {
         try { setCart(unwrap(await request('/customer/cart', { token }))); } catch { setCart(null); }
     };
     useEffect(() => { loadCatalog(); }, []);
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.hash.slice(1));
+        const googleToken = params.get('google_token');
+        const googleError = params.get('google_error');
+        if (!googleToken && !googleError) return;
+        window.history.replaceState({}, '', window.location.pathname + window.location.search);
+        if (googleToken) {
+            localStorage.setItem(TOKEN_KEY, googleToken);
+            setToken(googleToken);
+            notify('Connexion Google réussie. Bienvenue !');
+        } else {
+            const messages = { google_not_configured: 'La connexion Google sera disponible après sa configuration.', email_unavailable: 'Google n’a pas transmis votre adresse email.', authentication_failed: 'La connexion Google a échoué. Réessayez.' };
+            notify(messages[googleError] || 'La connexion Google a échoué.', googleError === 'google_not_configured' ? 'info' : 'error');
+        }
+    }, []);
     useEffect(() => { refreshCart(); }, [token]);
     useEffect(() => { if (token) { request('/auth/me', { token }).then((result) => setUser(unwrap(result))).catch(() => { localStorage.removeItem(TOKEN_KEY); setToken(null); }); } }, [token]);
     const login = async (values) => {
@@ -74,17 +92,22 @@ function ShopProvider({ children }) {
     const logout = async () => { try { await request('/auth/logout', { method: 'POST', token }); } catch {} localStorage.removeItem(TOKEN_KEY); setToken(null); setUser(null); setCart(null); notify('Vous êtes déconnecté.'); };
     const addToCart = async (product) => {
         if (!token) { setAuthOpen(true); notify('Connectez-vous pour ajouter un article.', 'info'); return; }
-        try { await request('/customer/cart/items', { method: 'POST', token, body: { product_id: product.id, quantity: 1 } }); await refreshCart(); setCartOpen(true); notify('Article ajouté au panier.'); }
+        const key = `cart-add-${product.id}`; setPending(key, true);
+        try { await request('/customer/cart/items', { method: 'POST', token, body: { product_id: product.id, quantity: 1 } }); await refreshCart(); setCartOpen(true); notify(`${product.name} a été ajouté au panier.`); }
         catch (error) { notify(error.message, 'error'); }
+        finally { setPending(key, false); }
     };
     const updateCartItem = async (id, quantity) => {
+        const key = `cart-item-${id}`; setPending(key, true);
         try { if (quantity < 1) await request(`/customer/cart/items/${id}`, { method: 'DELETE', token }); else await request(`/customer/cart/items/${id}`, { method: 'PATCH', token, body: { quantity } }); await refreshCart(); }
         catch (error) { notify(error.message, 'error'); }
+        finally { setPending(key, false); }
     };
-    const value = useMemo(() => ({ products, categories, loading, catalogError, token, user, cart, money, loadCatalog, refreshCart, login, register, logout, addToCart, updateCartItem, notify, authOpen, setAuthOpen, cartOpen, setCartOpen }), [products, categories, loading, catalogError, token, user, cart, toast, authOpen, cartOpen]);
-    return <ShopContext.Provider value={value}>{children}{toast && <Toast {...toast} />}</ShopContext.Provider>;
+    const value = useMemo(() => ({ products, categories, loading, catalogError, token, user, cart, money, loadCatalog, refreshCart, login, register, logout, addToCart, updateCartItem, isPending, notify, authOpen, setAuthOpen, cartOpen, setCartOpen }), [products, categories, loading, catalogError, token, user, cart, pendingActions, authOpen, cartOpen]);
+    return <ShopContext.Provider value={value}>{children}{toast && <Toast key={toast.id} {...toast} onClose={() => setToast(null)} />}</ShopContext.Provider>;
 }
-function Toast({ message, tone }) { return <div className={`toast toast-${tone}`} role="status"><b>{tone === 'error' ? '!' : '✓'}</b>{message}</div>; }
+function Spinner({ small = false }) { return <span className={`spinner ${small ? 'spinner-small' : ''}`} aria-hidden="true"></span>; }
+function Toast({ message, tone, onClose }) { useEffect(() => { const timer = window.setTimeout(onClose, 4200); return () => window.clearTimeout(timer); }, [onClose]); return <div className={`toast toast-${tone}`} role={tone === 'error' ? 'alert' : 'status'} aria-live="polite"><b>{tone === 'error' ? '!' : '✓'}</b><span>{message}</span><button onClick={onClose} aria-label="Fermer">×</button></div>; }
 
 function AppShell() {
     const location = useLocation();
@@ -164,27 +187,29 @@ function ProductGrid({ category, query }) {
     return <div className="product-grid">{filtered.map((product, index) => <ProductCard key={product.id} product={product} index={index} />)}</div>;
 }
 function ProductCard({ product, index }) {
-    const { addToCart } = useShop(); const image = product.images?.find((item) => item.is_primary)?.url || product.images?.[0]?.url || product.image_url;
+    const { addToCart, isPending } = useShop(); const image = product.images?.find((item) => item.is_primary)?.url || product.images?.[0]?.url || product.image_url;
     const fallback = productFallback(product, index);
-    return <article className="product-card"><Link to={`/produit/${product.slug || product.id}`} className={`product-visual tone-${(index % 4) + 1}`}>{image || fallback ? <img src={image || fallback} onError={replaceBrokenImage(fallback)} alt={product.name} /> : <ProductPlaceholder index={index} />}<span className="product-badge">{product.stock > 0 || product.is_available !== false ? 'DISPONIBLE' : 'ÉPUISÉ'}</span><span className="product-arrow">↗</span></Link><div className="product-info"><div><h3>{product.name}</h3><span className="product-category">{product.category?.name || 'Sélection André'}</span></div><div className="product-buy"><strong>{money(product.price)}</strong><button className="product-action" onClick={() => addToCart(product)} aria-label={`Ajouter ${product.name}`}>+</button></div></div></article>;
+    const pending = isPending(`cart-add-${product.id}`);
+    return <article className="product-card"><Link to={`/produit/${product.slug || product.id}`} className={`product-visual tone-${(index % 4) + 1}`}>{image || fallback ? <img src={image || fallback} onError={replaceBrokenImage(fallback)} alt={product.name} /> : <ProductPlaceholder index={index} />}<span className="product-badge">{product.stock > 0 || product.is_available !== false ? 'DISPONIBLE' : 'ÉPUISÉ'}</span><span className="product-arrow">↗</span></Link><div className="product-info"><div><h3>{product.name}</h3><span className="product-category">{product.category?.name || 'Sélection André'}</span></div><div className="product-buy"><strong>{money(product.price)}</strong><button className="product-action" disabled={pending} onClick={() => addToCart(product)} aria-label={`Ajouter ${product.name}`} aria-busy={pending}>{pending ? <Spinner small /> : '+'}</button></div></div></article>;
 }
 function ProductPlaceholder({ index = 0 }) { return <div className="placeholder-art"><span>{['OBJET','SOIN','MAISON','ESSENTIEL'][index % 4]}</span><b>ANDRÉ<br />SHOP</b><i></i></div>; }
 function ProductPage() {
-    const { slug } = useParams(); const { products, addToCart } = useShop(); const product = products.find((item) => String(item.slug || item.id) === String(slug));
+    const { slug } = useParams(); const { products, addToCart, isPending } = useShop(); const product = products.find((item) => String(item.slug || item.id) === String(slug));
     if (!product) return <div className="page-state"><h1>Produit introuvable</h1><Link className="button button-dark" to="/catalogue">Retour au catalogue</Link></div>;
     const image = product.images?.find((item) => item.is_primary)?.url || product.images?.[0]?.url;
     const fallback = productFallback(product, 1);
-    return <section className="product-page"><Link className="back-link" to="/catalogue">← Retour au catalogue</Link><div className="product-detail"><div className="detail-visual tone-2">{image || fallback ? <img src={image || fallback} onError={replaceBrokenImage(fallback)} alt={product.name} /> : <ProductPlaceholder index={1} />}</div><div className="detail-copy"><p className="eyebrow">{product.category?.name || 'SÉLECTION ANDRÉ'}</p><h1>{product.name}</h1><p className="detail-price">{money(product.price)}</p><p className="detail-description">{product.description || 'Une référence choisie avec soin pour sa qualité et sa simplicité d’usage.'}</p><div className="detail-meta"><span>✓ En stock</span><span>↗ Livraison au Cameroun</span></div><button className="button button-dark button-wide" onClick={() => addToCart(product)}>Ajouter au panier <span>＋</span></button><div className="detail-note">Paiement sécurisé · Retour sous 14 jours · Assistance 7j/7</div></div></div></section>;
+    const pending = isPending(`cart-add-${product.id}`);
+    return <section className="product-page"><Link className="back-link" to="/catalogue">← Retour au catalogue</Link><div className="product-detail"><div className="detail-visual tone-2">{image || fallback ? <img src={image || fallback} onError={replaceBrokenImage(fallback)} alt={product.name} /> : <ProductPlaceholder index={1} />}</div><div className="detail-copy"><p className="eyebrow">{product.category?.name || 'SÉLECTION ANDRÉ'}</p><h1>{product.name}</h1><p className="detail-price">{money(product.price)}</p><p className="detail-description">{product.description || 'Une référence choisie avec soin pour sa qualité et sa simplicité d’usage.'}</p><div className="detail-meta"><span>✓ En stock</span><span>↗ Livraison au Cameroun</span></div><button className="button button-dark button-wide" disabled={pending} aria-busy={pending} onClick={() => addToCart(product)}>{pending ? <><Spinner /> Ajout en cours…</> : <>Ajouter au panier <span>＋</span></>}</button><div className="detail-note">Paiement sécurisé · Retour sous 14 jours · Assistance 7j/7</div></div></div></section>;
 }
 function CartDrawer({ onClose }) {
-    const { cart, updateCartItem } = useShop();
+    const { cart, updateCartItem, isPending } = useShop();
     return <div className="overlay"><aside className="cart-drawer" role="dialog" aria-modal="true"><div className="drawer-head"><div><p className="eyebrow">VOTRE SÉLECTION</p><h2>Le panier</h2></div><button className="close-button" onClick={onClose}>×</button></div>{!cart?.items?.length ? <div className="drawer-empty"><div className="empty-icon">♡</div><h3>Votre panier est vide</h3><p>Les belles choses commencent souvent par un premier choix.</p><Link to="/catalogue" className="button button-dark" onClick={onClose}>Explorer la boutique</Link></div> : <><div className="cart-items">{cart.items.map((item) => <div className="cart-item" key={item.id}><div className="cart-thumb tone-1"><ProductPlaceholder index={item.id % 4} /></div><div className="cart-item-copy"><strong>{item.product?.name || item.variant?.product?.name}</strong><small>{money(item.unit_price || item.price)}</small><div className="quantity"><button onClick={() => updateCartItem(item.id, item.quantity - 1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.id, item.quantity + 1)}>＋</button></div></div><strong>{money((item.unit_price || item.price) * item.quantity)}</strong></div>)}</div><div className="drawer-total"><span>Total estimé</span><strong>{money(cart.subtotal || cart.total)}</strong></div><Link className="button button-dark button-wide" to="/checkout" onClick={onClose}>Passer la commande <span>↗</span></Link><p className="secure-note">Paiement sécurisé · Livraison calculée à l’étape suivante</p></>}</aside></div>;
 }
 function AuthModal({ onClose }) {
-    const { login, register } = useShop(); const [mode, setMode] = useState('login'); const [values, setValues] = useState({ name:'', email:'', password:'', password_confirmation:'' }); const [error, setError] = useState('');
+    const { login, register, notify } = useShop(); const [mode, setMode] = useState('login'); const [values, setValues] = useState({ name:'', email:'', password:'', password_confirmation:'' }); const [error, setError] = useState(''); const [submitting, setSubmitting] = useState(false);
     const update = (key) => (e) => setValues({ ...values, [key]: e.target.value });
-    const submit = async (e) => { e.preventDefault(); setError(''); try { await (mode === 'login' ? login(values) : register(values)); } catch (err) { setError(err.message); } };
-    return <div className="overlay"><div className="modal auth-modal" role="dialog" aria-modal="true"><button className="close-button" onClick={onClose}>×</button><div className="auth-intro"><span className="brand-mark">A</span><p className="eyebrow">ANDRÉ SHOP</p><h2>{mode === 'login' ? 'Ravi de vous revoir.' : 'Bienvenue chez nous.'}</h2><p>Retrouvez vos commandes et votre sélection.</p></div><div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Connexion</button><button className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Créer un compte</button></div><form onSubmit={submit}>{mode === 'register' && <label>Nom complet<input required value={values.name} onChange={update('name')} /></label>}<label>Adresse email<input required type="email" value={values.email} onChange={update('email')} /></label><label>Mot de passe<input required minLength="6" type="password" value={values.password} onChange={update('password')} /></label>{mode === 'register' && <label>Confirmer le mot de passe<input required type="password" value={values.password_confirmation} onChange={update('password_confirmation')} /></label>}{error && <p className="form-error">{error}</p>}<button className="button button-dark button-wide">{mode === 'login' ? 'Se connecter' : 'Créer mon compte'} <span>↗</span></button></form></div></div>;
+    const submit = async (e) => { e.preventDefault(); setError(''); setSubmitting(true); try { await (mode === 'login' ? login(values) : register(values)); } catch (err) { setError(err.message); notify(err.message, 'error'); } finally { setSubmitting(false); } };
+    return <div className="overlay"><div className="modal auth-modal" role="dialog" aria-modal="true"><button className="close-button" onClick={onClose}>×</button><div className="auth-intro"><span className="brand-mark">A</span><p className="eyebrow">ANDRÉ SHOP</p><h2>{mode === 'login' ? 'Ravi de vous revoir.' : 'Bienvenue chez nous.'}</h2><p>Retrouvez vos commandes et votre sélection.</p></div><a className="google-auth-button" href="/auth/google"><span className="google-g">G</span> Continuer avec Google</a><div className="auth-separator"><span>ou avec votre email</span></div><div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Connexion</button><button className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Créer un compte</button></div><form onSubmit={submit}>{mode === 'register' && <label>Nom complet<input required value={values.name} onChange={update('name')} /></label>}<label>Adresse email<input required type="email" value={values.email} onChange={update('email')} /></label><label>Mot de passe<input required minLength="6" type="password" value={values.password} onChange={update('password')} /></label>{mode === 'register' && <label>Confirmer le mot de passe<input required type="password" value={values.password_confirmation} onChange={update('password_confirmation')} /></label>}{error && <p className="form-error">{error}</p>}<button className="button button-dark button-wide" disabled={submitting} aria-busy={submitting}>{submitting ? <><Spinner /> Connexion en cours…</> : <>{mode === 'login' ? 'Se connecter' : 'Créer mon compte'} <span>↗</span></>}</button></form></div></div>;
 }
 function CheckoutPage() {
     const { cart, token, setAuthOpen, refreshCart, notify } = useShop();
@@ -217,6 +242,7 @@ function CheckoutPage() {
             navigate('/compte?order=' + number);
         } catch (err) {
             setError(err.message);
+            notify(err.message, 'error');
         } finally {
             setSubmitting(false);
         }
