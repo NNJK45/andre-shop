@@ -26,7 +26,7 @@ class OrderStatusService
 
             if (! $current->canTransitionTo($status)) {
                 throw ValidationException::withMessages([
-                    'status' => ["Cannot transition an order from {$current->value} to {$status->value}."],
+                    'status' => ["La commande ne peut pas passer directement du statut {$current->value} au statut {$status->value}."],
                 ]);
             }
 

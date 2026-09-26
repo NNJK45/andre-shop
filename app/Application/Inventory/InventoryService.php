@@ -19,7 +19,7 @@ class InventoryService
 
         if (InventoryItem::query()->whereMorphedTo('stockable', $stockable)->exists()) {
             throw ValidationException::withMessages([
-                'stockable' => ['Inventory is already initialized for this item.'],
+                'stockable' => ['Le stock de cet élément est déjà initialisé. Actualisez la liste avant de recommencer.'],
             ]);
         }
 
@@ -61,7 +61,7 @@ class InventoryService
 
             if ($onHand < $locked->reserved) {
                 throw ValidationException::withMessages([
-                    'quantity' => ['The adjustment cannot reduce stock below the reserved quantity.'],
+                    'quantity' => ['Cet ajustement placerait le stock sous la quantité déjà réservée.'],
                 ]);
             }
 
@@ -74,7 +74,7 @@ class InventoryService
         return $this->mutate($item, function (InventoryItem $locked) use ($quantity): array {
             if ($quantity > $locked->available) {
                 throw ValidationException::withMessages([
-                    'quantity' => ['The requested quantity exceeds available stock.'],
+                    'quantity' => ['La quantité demandée dépasse le stock disponible.'],
                 ]);
             }
 
@@ -87,7 +87,7 @@ class InventoryService
         return $this->mutate($item, function (InventoryItem $locked) use ($quantity): array {
             if ($quantity > $locked->reserved) {
                 throw ValidationException::withMessages([
-                    'quantity' => ['The released quantity exceeds reserved stock.'],
+                    'quantity' => ['La quantité à libérer dépasse le stock réservé.'],
                 ]);
             }
 
@@ -100,7 +100,7 @@ class InventoryService
         return $this->mutate($item, function (InventoryItem $locked) use ($quantity): array {
             if ($quantity > $locked->reserved || $quantity > $locked->on_hand) {
                 throw ValidationException::withMessages([
-                    'quantity' => ['The reserved stock is no longer sufficient to complete this sale.'],
+                    'quantity' => ['Le stock réservé n’est plus suffisant pour finaliser cette vente.'],
                 ]);
             }
 

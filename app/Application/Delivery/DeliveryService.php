@@ -20,13 +20,13 @@ class DeliveryService
     {
         if (in_array($order->status, [OrderStatus::PendingPayment, OrderStatus::Cancelled], true)) {
             throw ValidationException::withMessages([
-                'order_id' => ['A delivery can only be created for a paid or processed order.'],
+                'order_id' => ['Une livraison ne peut être créée que pour une commande payée ou déjà en traitement.'],
             ]);
         }
 
         if ($order->delivery()->exists()) {
             throw ValidationException::withMessages([
-                'order_id' => ['This order already has a delivery.'],
+                'order_id' => ['Une livraison existe déjà pour cette commande.'],
             ]);
         }
 
@@ -50,7 +50,7 @@ class DeliveryService
 
             if (! $locked->status->canTransitionTo($status)) {
                 throw ValidationException::withMessages([
-                    'status' => ["Cannot transition a delivery from {$locked->status->value} to {$status->value}."],
+                    'status' => ["La livraison ne peut pas passer directement du statut {$locked->status->value} au statut {$status->value}."],
                 ]);
             }
 

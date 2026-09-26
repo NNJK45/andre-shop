@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 
@@ -21,16 +21,59 @@ const replaceBrokenImage = (fallback) => (event) => {
     event.currentTarget.dataset.fallbackApplied = 'true';
     event.currentTarget.src = fallback;
 };
+const fieldLabels = {
+    name: 'nom', sku: 'référence SKU', email: 'adresse email', password: 'mot de passe',
+    password_confirmation: 'confirmation du mot de passe', category_id: 'catégorie', price: 'prix',
+    image: 'image', phone: 'téléphone', address: 'adresse', city: 'ville', quantity: 'quantité',
+    stock: 'stock', payment_method: 'mode de paiement'
+};
+const translateValidationMessage = (message, field) => {
+    const label = fieldLabels[field] || field?.replaceAll('_', ' ') || 'champ';
+    const text = String(message || '');
+    if (/already been taken|déjà (été )?pris/i.test(text)) return `La valeur du champ « ${label} » est déjà utilisée.`;
+    if (/credentials do not match/i.test(text)) return 'Adresse email ou mot de passe incorrect.';
+    if (/required/i.test(text)) return `Le champ « ${label} » est obligatoire.`;
+    if (/valid email/i.test(text)) return 'Saisissez une adresse email valide.';
+    if (/confirmation does not match/i.test(text)) return 'La confirmation du mot de passe ne correspond pas.';
+    if (/must be at least/i.test(text)) return `La valeur du champ « ${label} » est trop courte.`;
+    if (/must not be greater than|may not be greater than/i.test(text)) return `La valeur du champ « ${label} » dépasse la limite autorisée.`;
+    if (/selected .* is invalid/i.test(text)) return `La valeur choisie pour « ${label} » n’est pas valide.`;
+    if (/must be (an image|a file of type)/i.test(text)) return 'Le fichier choisi doit être une image JPEG, PNG ou WebP valide.';
+    return text;
+};
+const apiErrorMessage = (response, payload) => {
+    if (payload?.errors) {
+        const messages = Object.entries(payload.errors)
+            .flatMap(([field, values]) => (Array.isArray(values) ? values : [values]).map((value) => translateValidationMessage(value, field)))
+            .filter((value, index, all) => value && all.indexOf(value) === index);
+        if (messages.length) return messages.join(' ');
+    }
+    if (response.status === 401) return 'Votre session a expiré. Reconnectez-vous puis recommencez.';
+    if (response.status === 403) return 'Vous n’avez pas l’autorisation d’effectuer cette action.';
+    if (response.status === 404) return 'L’élément demandé est introuvable. Actualisez la page puis réessayez.';
+    if (response.status === 409) return payload?.message || 'Cette action entre en conflit avec des données déjà enregistrées.';
+    if (response.status === 413) return 'Le fichier envoyé est trop volumineux.';
+    if (response.status === 422) return payload?.message || 'Certaines informations sont invalides. Vérifiez le formulaire.';
+    if (response.status === 429) return 'Trop de tentatives ont été effectuées. Patientez un instant puis réessayez.';
+    if (response.status >= 500) return 'Le service est momentanément indisponible. Patientez quelques instants puis réessayez.';
+    return payload?.message || 'L’action n’a pas pu être effectuée. Réessayez.';
+};
 async function request(path, { token, ...options } = {}) {
     const headers = { Accept: 'application/json', ...(options.headers || {}) };
     let body = options.body;
     if (body && typeof body === 'object' && !(body instanceof FormData)) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(body); }
     if (token) headers.Authorization = `Bearer ${token}`;
-    const response = await fetch(`/api${path}`, { ...options, headers, body });
+    let response;
+    try {
+        response = await fetch(`/api${path}`, { ...options, headers, body });
+    } catch {
+        throw new Error(options.method && options.method !== 'GET'
+            ? 'Connexion interrompue : impossible de confirmer l’enregistrement. Actualisez la liste avant de recommencer pour éviter un doublon.'
+            : 'Impossible de joindre le serveur. Vérifiez votre connexion internet puis réessayez.');
+    }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-        const errors = payload.errors ? Object.values(payload.errors).flat().join(' ') : '';
-        throw new Error(errors || payload.message || 'Une erreur est survenue.');
+        throw new Error(apiErrorMessage(response, payload));
     }
     return payload;
 }
@@ -207,9 +250,10 @@ function CartDrawer({ onClose }) {
 }
 function AuthModal({ onClose }) {
     const { login, register, notify } = useShop(); const [mode, setMode] = useState('login'); const [values, setValues] = useState({ name:'', email:'', password:'', password_confirmation:'' }); const [error, setError] = useState(''); const [submitting, setSubmitting] = useState(false);
+    const submitLock = useRef(false);
     const update = (key) => (e) => setValues({ ...values, [key]: e.target.value });
-    const submit = async (e) => { e.preventDefault(); setError(''); setSubmitting(true); try { await (mode === 'login' ? login(values) : register(values)); } catch (err) { setError(err.message); notify(err.message, 'error'); } finally { setSubmitting(false); } };
-    return <div className="overlay"><div className="modal auth-modal" role="dialog" aria-modal="true"><button className="close-button" onClick={onClose}>×</button><div className="auth-intro"><span className="brand-mark">A</span><p className="eyebrow">ANDRÉ SHOP</p><h2>{mode === 'login' ? 'Ravi de vous revoir.' : 'Bienvenue chez nous.'}</h2><p>Retrouvez vos commandes et votre sélection.</p></div><a className="google-auth-button" href="/auth/google"><span className="google-g">G</span> Continuer avec Google</a><div className="auth-separator"><span>ou avec votre email</span></div><div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Connexion</button><button className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Créer un compte</button></div><form onSubmit={submit}>{mode === 'register' && <label>Nom complet<input required value={values.name} onChange={update('name')} /></label>}<label>Adresse email<input required type="email" value={values.email} onChange={update('email')} /></label><label>Mot de passe<input required minLength="6" type="password" value={values.password} onChange={update('password')} /></label>{mode === 'register' && <label>Confirmer le mot de passe<input required type="password" value={values.password_confirmation} onChange={update('password_confirmation')} /></label>}{error && <p className="form-error">{error}</p>}<button className="button button-dark button-wide" disabled={submitting} aria-busy={submitting}>{submitting ? <><Spinner /> Connexion en cours…</> : <>{mode === 'login' ? 'Se connecter' : 'Créer mon compte'} <span>↗</span></>}</button></form></div></div>;
+    const submit = async (e) => { e.preventDefault(); if (submitLock.current) return; submitLock.current = true; setError(''); setSubmitting(true); try { await (mode === 'login' ? login(values) : register(values)); } catch (err) { setError(err.message); notify(err.message, 'error'); } finally { submitLock.current = false; setSubmitting(false); } };
+    return <div className="overlay"><div className="modal auth-modal" role="dialog" aria-modal="true"><button className="close-button" onClick={onClose}>×</button><div className="auth-intro"><span className="brand-mark">A</span><p className="eyebrow">ANDRÉ SHOP</p><h2>{mode === 'login' ? 'Ravi de vous revoir.' : 'Bienvenue chez nous.'}</h2><p>Retrouvez vos commandes et votre sélection.</p></div><a className="google-auth-button" href="/auth/google"><span className="google-g">G</span> Continuer avec Google</a><div className="auth-separator"><span>ou avec votre email</span></div><div className="auth-tabs"><button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Connexion</button><button className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Créer un compte</button></div><form onSubmit={submit}>{mode === 'register' && <label>Nom complet<input required value={values.name} onChange={update('name')} /></label>}<label>Adresse email<input required type="email" value={values.email} onChange={update('email')} /></label><label>Mot de passe<input required minLength="6" type="password" value={values.password} onChange={update('password')} /></label>{mode === 'register' && <label>Confirmer le mot de passe<input required type="password" value={values.password_confirmation} onChange={update('password_confirmation')} /></label>}{error && <p className="form-error">{error}</p>}<button type="submit" className="button button-dark button-wide" disabled={submitting} aria-busy={submitting}>{submitting ? <><Spinner /> {mode === 'login' ? 'Connexion en cours…' : 'Création du compte…'}</> : <>{mode === 'login' ? 'Se connecter' : 'Créer mon compte'} <span>↗</span></>}</button></form></div></div>;
 }
 function CheckoutPage() {
     const { cart, token, setAuthOpen, refreshCart, notify } = useShop();
@@ -217,6 +261,7 @@ function CheckoutPage() {
     const [values, setValues] = useState({ name:'', phone:'', address:'', city:'Douala', notes:'', paymentMethod:'MTN_MOMO' });
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const submitLock = useRef(false);
     const paymentOptions = [
         { value:'MTN_MOMO', name:'MTN MoMo', description:'Paiement depuis votre compte MTN Mobile Money', logo:'MTN' },
         { value:'ORANGE_MONEY', name:'Orange Money', description:'Paiement depuis votre compte Orange Money', logo:'OM' },
@@ -229,6 +274,8 @@ function CheckoutPage() {
     const selectPayment = (paymentMethod) => setValues({ ...values, paymentMethod });
     const placeOrder = async (e) => {
         e.preventDefault();
+        if (submitLock.current) return;
+        submitLock.current = true;
         setSubmitting(true);
         setError('');
         try {
@@ -244,11 +291,12 @@ function CheckoutPage() {
             setError(err.message);
             notify(err.message, 'error');
         } finally {
+            submitLock.current = false;
             setSubmitting(false);
         }
     };
 
-    return <section className="checkout-page"><div className="checkout-main"><p className="eyebrow">FINALISER LA COMMANDE</p><h1>Quelques derniers détails.</h1><div className="checkout-steps"><span className="active">01 <b>Livraison</b></span><i></i><span>02 <b>Paiement</b></span></div><form onSubmit={placeOrder} className="checkout-form"><div className="form-card"><h2>Où souhaitez-vous être livré ?</h2><div className="form-grid"><label>Nom complet<input required value={values.name} onChange={update('name')} /></label><label>Téléphone<input required inputMode="tel" value={values.phone} onChange={update('phone')} placeholder="6XX XXX XXX" /></label><label className="full">Adresse de livraison<input required value={values.address} onChange={update('address')} placeholder="Quartier, rue, repère" /></label><label>Ville<select value={values.city} onChange={update('city')}><option>Douala</option><option>Yaoundé</option><option>Bafoussam</option><option>Autre ville</option></select></label><label>Note (optionnel)<input value={values.notes} onChange={update('notes')} /></label></div></div><div className="form-card payment-methods" role="radiogroup" aria-label="Mode de paiement"><h2>Mode de paiement</h2>{paymentOptions.map((option) => <button key={option.value} type="button" role="radio" aria-checked={values.paymentMethod === option.value} className={'payment-choice ' + (values.paymentMethod === option.value ? 'selected' : '')} onClick={() => selectPayment(option.value)}><span className="radio"></span><span className="payment-copy"><strong>{option.name}</strong><small>{option.description} · sécurisé par Nokash</small></span><span className={'payment-logos payment-logo-' + option.value.toLowerCase()}>{option.logo}</span></button>)}</div>{error && <p className="form-error">{error}</p>}<button disabled={submitting} className="button button-dark button-wide">{submitting ? 'Création en cours…' : 'Confirmer la commande'} <span>↗</span></button></form></div><aside className="checkout-summary"><p className="eyebrow">RÉCAPITULATIF</p><h2>Votre sélection</h2>{cart.items.map((item) => <div className="summary-line" key={item.id}><span>{item.quantity} × {item.product?.name || item.variant?.product?.name}</span><strong>{money((item.unit_price || item.price) * item.quantity)}</strong></div>)}<div className="summary-total"><span>Total</span><strong>{money(cart.subtotal || cart.total)}</strong></div><p className="secure-note">✓ Vos données sont protégées<br />✓ Paiement chiffré de bout en bout</p></aside></section>;
+    return <section className="checkout-page"><div className="checkout-main"><p className="eyebrow">FINALISER LA COMMANDE</p><h1>Quelques derniers détails.</h1><div className="checkout-steps"><span className="active">01 <b>Livraison</b></span><i></i><span>02 <b>Paiement</b></span></div><form onSubmit={placeOrder} className="checkout-form"><div className="form-card"><h2>Où souhaitez-vous être livré ?</h2><div className="form-grid"><label>Nom complet<input required value={values.name} onChange={update('name')} /></label><label>Téléphone<input required inputMode="tel" value={values.phone} onChange={update('phone')} placeholder="6XX XXX XXX" /></label><label className="full">Adresse de livraison<input required value={values.address} onChange={update('address')} placeholder="Quartier, rue, repère" /></label><label>Ville<select value={values.city} onChange={update('city')}><option>Douala</option><option>Yaoundé</option><option>Bafoussam</option><option>Autre ville</option></select></label><label>Note (optionnel)<input value={values.notes} onChange={update('notes')} /></label></div></div><div className="form-card payment-methods" role="radiogroup" aria-label="Mode de paiement"><h2>Mode de paiement</h2>{paymentOptions.map((option) => <button key={option.value} type="button" role="radio" aria-checked={values.paymentMethod === option.value} className={'payment-choice ' + (values.paymentMethod === option.value ? 'selected' : '')} onClick={() => selectPayment(option.value)}><span className="radio"></span><span className="payment-copy"><strong>{option.name}</strong><small>{option.description} · sécurisé par Nokash</small></span><span className={'payment-logos payment-logo-' + option.value.toLowerCase()}>{option.logo}</span></button>)}</div>{error && <p className="form-error">{error}</p>}<button type="submit" disabled={submitting} aria-busy={submitting} className="button button-dark button-wide">{submitting ? <><Spinner /> Création de la commande…</> : <>Confirmer la commande <span>↗</span></>}</button></form></div><aside className="checkout-summary"><p className="eyebrow">RÉCAPITULATIF</p><h2>Votre sélection</h2>{cart.items.map((item) => <div className="summary-line" key={item.id}><span>{item.quantity} × {item.product?.name || item.variant?.product?.name}</span><strong>{money((item.unit_price || item.price) * item.quantity)}</strong></div>)}<div className="summary-total"><span>Total</span><strong>{money(cart.subtotal || cart.total)}</strong></div><p className="secure-note">✓ Vos données sont protégées<br />✓ Paiement chiffré de bout en bout</p></aside></section>;
 }
 function AccountPage() {
     const { token, user, setAuthOpen } = useShop();
@@ -512,8 +560,11 @@ function StockActionModal({ item, mode, token, notify, onClose, onSaved }) {
     const [reference, setReference] = useState('');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
+    const submitLock = useRef(false);
     const submit = async (event) => {
         event.preventDefault();
+        if (submitLock.current) return;
+        submitLock.current = true;
         setSaving(true);
         setError('');
         try {
@@ -530,7 +581,7 @@ function StockActionModal({ item, mode, token, notify, onClose, onSaved }) {
             onSaved();
         } catch (e) {
             setError(e.message);
-        } finally { setSaving(false); }
+        } finally { submitLock.current = false; setSaving(false); }
     };
     return <div className="overlay admin-modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
         <div className="admin-form-modal stock-action-modal" role="dialog" aria-modal="true" aria-labelledby="stock-action-title">
@@ -541,7 +592,7 @@ function StockActionModal({ item, mode, token, notify, onClose, onSaved }) {
                 <label className="full">Motif<input required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Motif de l'opération" /></label>
                 <label className="full">Référence (optionnel)<input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Bon de livraison, inventaire..." /></label>
                 {error && <p className="form-error">{error}</p>}
-                <div className="admin-form-actions"><button type="button" className="button button-light" onClick={onClose}>Annuler</button><button disabled={saving} className="button button-dark" type="submit">{saving ? 'Enregistrement...' : receiving ? 'Enregistrer la réception' : 'Enregistrer l’ajustement'} <span>↗</span></button></div>
+                <div className="admin-form-actions"><button type="button" className="button button-light" onClick={onClose} disabled={saving}>Annuler</button><button disabled={saving} aria-busy={saving} className="button button-dark" type="submit">{saving ? <><Spinner /> Enregistrement…</> : <>{receiving ? 'Enregistrer la réception' : 'Enregistrer l’ajustement'} <span>↗</span></>}</button></div>
             </form>
         </div>
     </div>;
@@ -567,6 +618,7 @@ function AdminFormModal({ tab, item, token, onClose, onSaved, notify }) {
     const [categories, setCategories] = useState([]);
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
+    const submitLock = useRef(false);
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState(currentImage || '');
     useEffect(() => () => { if (imagePreview.startsWith('blob:')) URL.revokeObjectURL(imagePreview); }, [imagePreview]);
@@ -574,13 +626,12 @@ function AdminFormModal({ tab, item, token, onClose, onSaved, notify }) {
     const update = (key) => (event) => { const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value; setValues((current) => ({ ...current, [key]: value })); };
     const handleImageChange = (event) => { const file = event.target.files?.[0] || null; setImageFile(file); setImagePreview(file ? URL.createObjectURL(file) : ''); };
     const submit = async (event) => {
-        event.preventDefault(); setSaving(true); setError('');
+        event.preventDefault();
+        if (submitLock.current) return;
+        submitLock.current = true;
+        setSaving(true); setError('');
         const payload = { ...values };
         if (tab === 'products' && !payload.category_id) payload.category_id = null;
-        if (tab === 'products' && !String(payload.sku || '').trim()) {
-            const slugBase = String(payload.name || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toUpperCase().slice(0, 90);
-            payload.sku = slugBase ? 'AND-' + slugBase : '';
-        }
         try {
             const requestPayload = { ...payload };
             if (tab === 'products') {
@@ -618,7 +669,7 @@ function AdminFormModal({ tab, item, token, onClose, onSaved, notify }) {
                             on_hand: Number(payload.initial_stock),
                             reorder_level: Number(payload.reorder_level),
                             reason: 'Stock initial produit',
-                            reference: payload.sku
+                            reference: product.sku
                         }
                     });
                 }
@@ -633,9 +684,11 @@ function AdminFormModal({ tab, item, token, onClose, onSaved, notify }) {
             onSaved();
         } catch (e) {
             setError(e.message);
+            notify(e.message, 'error');
         } finally {
+            submitLock.current = false;
             setSaving(false);
         }
     };    const title = editing ? (tab === 'products' ? 'Modifier le produit' : 'Modifier la categorie') : tab === 'products' ? 'Ajouter un produit' : tab === 'categories' ? 'Ajouter une categorie' : 'Ajouter un fournisseur';
-    return <div className="overlay admin-modal-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="admin-form-modal" role="dialog" aria-modal="true" aria-labelledby="admin-form-title"><div className="drawer-head"><div><p className="eyebrow">{editing ? 'MODIFICATION' : 'NOUVEL ELEMENT'}</p><h2 id="admin-form-title">{title}</h2></div><button className="close-button" onClick={onClose} aria-label="Fermer">×</button></div><form className="admin-form" onSubmit={submit}>{tab === 'categories' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Description<textarea rows="3" value={values.description} onChange={update('description')} /></label><label className="full image-upload-field">Image de la catégorie<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />{imagePreview ? <span className="image-preview"><img src={imagePreview} onError={replaceBrokenImage(categoryFallback(item))} alt="Aperçu de la catégorie" /></span> : <span className="image-preview-empty">Aperçu de l’image disponible après sélection</span>}{imageFile && <small className="image-file-name">{imageFile.name}</small>}</label></>}{tab === 'products' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Categorie<select value={values.category_id} onChange={update('category_id')}><option value="">Sans categorie</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>Prix (FCFA)<input required min="0" step="1" type="number" value={values.price} onChange={update('price')} /></label>{!editing && <><label>Quantite initiale<input required min="0" step="1" type="number" value={values.initial_stock} onChange={update('initial_stock')} /></label><label>Seuil d'alerte<input required min="0" step="1" type="number" value={values.reorder_level} onChange={update('reorder_level')} /></label></>}<label className="full image-upload-field">Image du produit<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />{imagePreview ? <span className="image-preview"><img src={imagePreview} onError={replaceBrokenImage(productFallback(item))} alt="Aperçu du produit" /></span> : <span className="image-preview-empty">Aperçu de l’image disponible après sélection</span>}{imageFile && <small className="image-file-name">{imageFile.name}</small>}</label><label className="full">Description<textarea rows="3" value={values.description} onChange={update('description')} /></label></>}{tab === 'suppliers' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Contact<input value={values.contact_name} onChange={update('contact_name')} /></label><label>Email<input type="email" value={values.email} onChange={update('email')} /></label><label>Telephone<input value={values.phone} onChange={update('phone')} /></label><label className="full">Adresse<textarea rows="2" value={values.address} onChange={update('address')} /></label><label className="full">Notes<textarea rows="2" value={values.notes} onChange={update('notes')} /></label></>}<label className="admin-checkbox"><input type="checkbox" checked={values.is_active} onChange={update('is_active')} /> Element actif</label>{error && <p className="form-error">{error}</p>}<div className="admin-form-actions"><button type="button" className="button button-light" onClick={onClose}>Annuler</button><button disabled={saving} className="button button-dark">{saving ? 'Enregistrement...' : editing ? 'Enregistrer les modifications' : 'Enregistrer'} <span>↗</span></button></div></form></div></div>;
+    return <div className="overlay admin-modal-overlay" onMouseDown={(event) => { if (!saving && event.target === event.currentTarget) onClose(); }}><div className="admin-form-modal" role="dialog" aria-modal="true" aria-labelledby="admin-form-title"><div className="drawer-head"><div><p className="eyebrow">{editing ? 'MODIFICATION' : 'NOUVEL ELEMENT'}</p><h2 id="admin-form-title">{title}</h2></div><button className="close-button" onClick={onClose} disabled={saving} aria-label="Fermer">×</button></div><form className="admin-form" onSubmit={submit}>{tab === 'categories' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Description<textarea rows="3" value={values.description} onChange={update('description')} /></label><label className="full image-upload-field">Image de la catégorie<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />{imagePreview ? <span className="image-preview"><img src={imagePreview} onError={replaceBrokenImage(categoryFallback(item))} alt="Aperçu de la catégorie" /></span> : <span className="image-preview-empty">Aperçu de l’image disponible après sélection</span>}{imageFile && <small className="image-file-name">{imageFile.name}</small>}</label></>}{tab === 'products' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Categorie<select value={values.category_id} onChange={update('category_id')}><option value="">Sans categorie</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>Prix (FCFA)<input required min="0" step="1" type="number" value={values.price} onChange={update('price')} /></label>{!editing && <><label>Quantite initiale<input required min="0" step="1" type="number" value={values.initial_stock} onChange={update('initial_stock')} /></label><label>Seuil d'alerte<input required min="0" step="1" type="number" value={values.reorder_level} onChange={update('reorder_level')} /></label></>}<label className="full image-upload-field">Image du produit<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleImageChange} />{imagePreview ? <span className="image-preview"><img src={imagePreview} onError={replaceBrokenImage(productFallback(item))} alt="Aperçu du produit" /></span> : <span className="image-preview-empty">Aperçu de l’image disponible après sélection</span>}{imageFile && <small className="image-file-name">{imageFile.name}</small>}</label><label className="full">Description<textarea rows="3" value={values.description} onChange={update('description')} /></label></>}{tab === 'suppliers' && <><label>Nom<input required value={values.name} onChange={update('name')} /></label><label>Contact<input value={values.contact_name} onChange={update('contact_name')} /></label><label>Email<input type="email" value={values.email} onChange={update('email')} /></label><label>Telephone<input value={values.phone} onChange={update('phone')} /></label><label className="full">Adresse<textarea rows="2" value={values.address} onChange={update('address')} /></label><label className="full">Notes<textarea rows="2" value={values.notes} onChange={update('notes')} /></label></>}<label className="admin-checkbox"><input type="checkbox" checked={values.is_active} onChange={update('is_active')} /> Element actif</label>{error && <p className="form-error">{error}</p>}<div className="admin-form-actions"><button type="button" className="button button-light" onClick={onClose} disabled={saving}>Annuler</button><button type="submit" disabled={saving} aria-busy={saving} className="button button-dark">{saving ? <><Spinner /> Enregistrement…</> : <>{editing ? 'Enregistrer les modifications' : 'Enregistrer'} <span>↗</span></>}</button></div></form></div></div>;
 }

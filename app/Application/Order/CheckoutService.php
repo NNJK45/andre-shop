@@ -28,7 +28,7 @@ class CheckoutService
 
             if (! $cart || $cart->items->isEmpty()) {
                 throw ValidationException::withMessages([
-                    'cart' => ['The cart is empty.'],
+                    'cart' => ['Votre panier est vide. Ajoutez au moins un article avant de commander.'],
                 ]);
             }
 
@@ -56,7 +56,7 @@ class CheckoutService
 
                 if (! $inventoryItem) {
                     throw ValidationException::withMessages([
-                        'stock' => ["Inventory is unavailable for SKU {$purchasable->sku}."],
+                        'stock' => ["Le stock n’est pas disponible pour l’article {$purchasable->sku}."],
                     ]);
                 }
 

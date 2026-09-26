@@ -216,6 +216,32 @@ class CatalogApiTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.sku', 'AND-DELL-T540-2');
     }
+
+    public function test_duplicate_catalog_names_return_clear_french_messages(): void
+    {
+        $token = $this->adminToken();
+        Category::query()->create(['name' => 'Cuisine', 'slug' => 'cuisine']);
+        Product::query()->create([
+            'name' => 'Plaque automatique',
+            'slug' => 'plaque-automatique',
+            'sku' => 'AND-PLAQUE-AUTOMATIQUE',
+            'price' => 15000,
+        ]);
+
+        $this->withToken($token)
+            ->postJson('/api/admin/categories', ['name' => 'Cuisine'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.name.0', 'Une catégorie portant ce nom existe déjà. Choisissez un autre nom ou modifiez la catégorie existante.');
+
+        $this->withToken($token)
+            ->postJson('/api/admin/products', [
+                'name' => 'Plaque automatique',
+                'price' => 15000,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.name.0', 'Un produit portant ce nom existe déjà. Choisissez un autre nom ou modifiez le produit existant.');
+    }
+
     public function test_admin_can_update_and_delete_catalog_entities(): void
     {
         $token = $this->adminToken();

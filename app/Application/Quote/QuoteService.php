@@ -42,7 +42,7 @@ class QuoteService
 
             if (! $locked->status->canTransitionTo($status)) {
                 throw ValidationException::withMessages([
-                    'status' => ["Cannot transition a quote from {$locked->status->value} to {$status->value}."],
+                    'status' => ["La demande de devis ne peut pas passer directement du statut {$locked->status->value} au statut {$status->value}."],
                 ]);
             }
 

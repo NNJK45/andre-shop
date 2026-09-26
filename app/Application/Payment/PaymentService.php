@@ -32,7 +32,7 @@ class PaymentService
 
             if ($lockedOrder->status !== OrderStatus::PendingPayment) {
                 throw ValidationException::withMessages([
-                    'order' => ['Only orders awaiting payment can be paid.'],
+                    'order' => ['Seules les commandes en attente de paiement peuvent être payées.'],
                 ]);
             }
 
@@ -42,7 +42,7 @@ class PaymentService
                 if ($existing) {
                     if ($existing->order_id !== $lockedOrder->id || $existing->user_id !== $user->getKey()) {
                         throw ValidationException::withMessages([
-                            'idempotency_key' => ['This idempotency key is already used for another payment.'],
+                            'idempotency_key' => ['Cette tentative de paiement est déjà associée à une autre commande.'],
                         ]);
                     }
 
@@ -94,7 +94,7 @@ class PaymentService
                 || number_format((float) $result->amount, 2, '.', '') !== number_format((float) $locked->amount, 2, '.', '')
             ) {
                 throw ValidationException::withMessages([
-                    'payment' => ['The NoKash status does not match the local payment.'],
+                    'payment' => ['Le statut retourné par NoKash ne correspond pas au paiement enregistré.'],
                 ]);
             }
 
@@ -133,7 +133,7 @@ class PaymentService
 
             if ($locked->status->isFinal()) {
                 throw ValidationException::withMessages([
-                    'payment' => ['A final payment cannot be marked as succeeded.'],
+                    'payment' => ['Ce paiement est déjà clôturé et ne peut plus être confirmé.'],
                 ]);
             }
 

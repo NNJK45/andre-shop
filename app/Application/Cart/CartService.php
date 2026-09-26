@@ -181,7 +181,7 @@ class CartService
 
         if (! $inventory) {
             throw ValidationException::withMessages([
-                'stock' => ['Inventory is not initialized for this item.'],
+                'stock' => ['Le stock de cet article n’est pas encore disponible.'],
             ]);
         }
 
