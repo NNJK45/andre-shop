@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\DeliveryController;
+use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\InventoryController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\PaymentController;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['auth:sanctum', 'role:admin'])
     ->scopeBindings()
     ->group(function (): void {
+        Route::get('dashboard', DashboardController::class)->name('dashboard');
         Route::apiResource('categories', CategoryController::class);
         Route::apiResource('products', ProductController::class);
 

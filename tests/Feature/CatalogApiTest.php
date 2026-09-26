@@ -138,26 +138,60 @@ class CatalogApiTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_dashboard_counts_all_active_products_beyond_the_first_page(): void
+    {
+        foreach (range(1, 22) as $index) {
+            Product::query()->create([
+                'name' => "Produit actif {$index}",
+                'slug' => "produit-actif-{$index}",
+                'sku' => "ACTIF-{$index}",
+                'price' => 1000,
+                'is_active' => true,
+            ]);
+        }
+
+        foreach (range(1, 3) as $index) {
+            Product::query()->create([
+                'name' => "Produit inactif {$index}",
+                'slug' => "produit-inactif-{$index}",
+                'sku' => "INACTIF-{$index}",
+                'price' => 1000,
+                'is_active' => false,
+            ]);
+        }
+
+        $this->withToken($this->adminToken())
+            ->getJson('/api/admin/dashboard')
+            ->assertOk()
+            ->assertJsonPath('data.active_products', 22)
+            ->assertJsonPath('data.orders', 0)
+            ->assertJsonPath('data.low_stock_count', 0);
+    }
+
     public function test_admin_can_create_category_product_variant_and_images(): void
     {
         $token = $this->adminToken();
 
+        Storage::fake('public');
+
         $categoryId = $this->withToken($token)
-            ->postJson('/api/admin/categories', [
+            ->post('/api/admin/categories', [
                 'name' => 'Home Appliances',
                 'description' => 'Appliances for the home.',
+                'image' => UploadedFile::fake()->image('category.jpg'),
             ])
             ->assertCreated()
             ->assertJsonPath('data.slug', 'home-appliances')
             ->json('data.id');
 
         $productResponse = $this->withToken($token)
-            ->postJson('/api/admin/products', [
+            ->post('/api/admin/products', [
                 'category_id' => $categoryId,
                 'name' => 'Coffee Maker',
                 'sku' => 'COF-001',
                 'description' => 'Automatic coffee maker.',
                 'price' => 249.99,
+                'image' => UploadedFile::fake()->image('coffee.jpg'),
             ])
             ->assertCreated()
             ->assertJsonPath('data.slug', 'coffee-maker')
@@ -194,7 +228,7 @@ class CatalogApiTest extends TestCase
             'is_primary' => false,
         ]);
         $this->assertDatabaseCount('product_variants', 1);
-        $this->assertDatabaseCount('product_images', 2);
+        $this->assertDatabaseCount('product_images', 3);
     }
 
     public function test_admin_can_create_product_without_sku(): void
@@ -208,10 +242,13 @@ class CatalogApiTest extends TestCase
             'price' => 100,
         ]);
 
-        $this->withToken($token)
-            ->postJson('/api/admin/products', [
+        Storage::fake('public');
+
+        $this->withToken($token)->withHeader('Accept', 'application/json')
+            ->post('/api/admin/products', [
                 'name' => 'Dell T540',
                 'price' => 230000,
+                'image' => UploadedFile::fake()->image('dell.jpg'),
             ])
             ->assertCreated()
             ->assertJsonPath('data.sku', 'AND-DELL-T540-2');
@@ -233,13 +270,29 @@ class CatalogApiTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonPath('errors.name.0', 'Une catégorie portant ce nom existe déjà. Choisissez un autre nom ou modifiez la catégorie existante.');
 
-        $this->withToken($token)
-            ->postJson('/api/admin/products', [
+        $this->withToken($token)->withHeader('Accept', 'application/json')
+            ->post('/api/admin/products', [
                 'name' => 'Plaque automatique',
                 'price' => 15000,
+                'image' => UploadedFile::fake()->image('plaque.jpg'),
             ])
             ->assertUnprocessable()
             ->assertJsonPath('errors.name.0', 'Un produit portant ce nom existe déjà. Choisissez un autre nom ou modifiez le produit existant.');
+    }
+
+    public function test_product_and_category_images_are_required_on_creation(): void
+    {
+        $token = $this->adminToken();
+
+        $this->withToken($token)
+            ->postJson('/api/admin/categories', ['name' => 'Sans photo'])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.image.0', 'La photo de la catégorie est obligatoire.');
+
+        $this->withToken($token)
+            ->postJson('/api/admin/products', ['name' => 'Sans photo', 'price' => 1000])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.image.0', 'La photo du produit est obligatoire.');
     }
 
     public function test_admin_can_update_and_delete_catalog_entities(): void

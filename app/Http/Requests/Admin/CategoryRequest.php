@@ -21,7 +21,7 @@ class CategoryRequest extends FormRequest
         return [
             'name' => [$required, 'string', 'max:255', Rule::unique(Category::class)->ignore($category)],
             'description' => ['nullable', 'string'],
-            'image' => ['sometimes', 'nullable', 'file', 'image', 'max:5120'],
+            'image' => [$this->isMethod('post') ? 'required' : 'sometimes', 'file', 'image', 'max:5120'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }
@@ -31,6 +31,7 @@ class CategoryRequest extends FormRequest
         return [
             'name.required' => 'Le nom de la catégorie est obligatoire.',
             'name.unique' => 'Une catégorie portant ce nom existe déjà. Choisissez un autre nom ou modifiez la catégorie existante.',
+            'image.required' => 'La photo de la catégorie est obligatoire.',
             'image.image' => 'Le fichier choisi doit être une image valide.',
             'image.max' => 'L’image ne doit pas dépasser 5 Mo.',
         ];

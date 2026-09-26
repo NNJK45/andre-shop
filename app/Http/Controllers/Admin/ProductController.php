@@ -10,6 +10,9 @@ use App\Http\Resources\ProductResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 class ProductController extends Controller
 {
@@ -22,7 +25,25 @@ class ProductController extends Controller
 
     public function store(ProductRequest $request, CatalogService $catalog): JsonResponse
     {
-        $product = $catalog->createProduct($request->validated())->load(['category', 'variants', 'images']);
+        $attributes = $request->safe()->except('image');
+        $imagePath = $request->file('image')->store('products', 'public');
+
+        try {
+            $product = DB::transaction(function () use ($attributes, $imagePath, $catalog): Product {
+                $product = $catalog->createProduct($attributes);
+                $catalog->createImage($product, [
+                    'path' => $imagePath,
+                    'alt_text' => $product->name,
+                    'position' => 0,
+                    'is_primary' => true,
+                ]);
+
+                return $product;
+            })->load(['category', 'variants', 'images']);
+        } catch (Throwable $exception) {
+            Storage::disk('public')->delete($imagePath);
+            throw $exception;
+        }
 
         return (new ProductResource($product))
             ->response()
@@ -36,7 +57,7 @@ class ProductController extends Controller
 
     public function update(ProductRequest $request, Product $product, CatalogService $catalog): ProductResource
     {
-        $product = $catalog->updateProduct($product, $request->validated());
+        $product = $catalog->updateProduct($product, $request->safe()->except('image'));
 
         return new ProductResource($product->load(['category', 'variants', 'images']));
     }

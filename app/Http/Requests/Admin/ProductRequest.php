@@ -24,6 +24,7 @@ class ProductRequest extends FormRequest
             'sku' => ['sometimes', 'nullable', 'string', 'max:100', Rule::unique(Product::class)->ignore($product)],
             'description' => ['nullable', 'string'],
             'price' => [$required, 'numeric', 'min:0', 'decimal:0,2'],
+            'image' => [$this->isMethod('post') ? 'required' : 'sometimes', 'file', 'image', 'max:5120'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }
@@ -38,6 +39,9 @@ class ProductRequest extends FormRequest
             'price.required' => 'Le prix du produit est obligatoire.',
             'price.numeric' => 'Le prix doit être un nombre valide.',
             'price.min' => 'Le prix ne peut pas être négatif.',
+            'image.required' => 'La photo du produit est obligatoire.',
+            'image.image' => 'Le fichier choisi doit être une image valide.',
+            'image.max' => 'La photo du produit ne doit pas dépasser 5 Mo.',
         ];
     }
 }
