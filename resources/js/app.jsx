@@ -55,7 +55,7 @@ function ShopProvider({ children }) {
     const loadCatalog = async () => {
         setLoading(true); setCatalogError('');
         try {
-            const [cats, items] = await Promise.all([request('/customer/catalog/categories'), request('/customer/catalog/products')]);
+            const [cats, items] = await Promise.all([request('/customer/catalog/categories'), request('/customer/catalog/products?per_page=100')]);
             setCategories(unwrap(cats)); setProducts(unwrap(items));
         } catch (error) { setCatalogError(error.message); } finally { setLoading(false); }
     };
@@ -155,7 +155,7 @@ function CategoryShowcase() {
         'mobilier': '/images/categories/mobilier.jpg'
     };
     const fallbackImages = Object.values(categoryImages);
-    return <section className="category-showcase"><div className="category-showcase-head"><div><p className="eyebrow">TROUVER VOTRE UNIVERS</p><h2>Quel espace souhaitez-vous <em>équiper ?</em></h2></div><Link to="/catalogue" className="text-link">Toutes les catégories <span>↗</span></Link></div><div className="category-cards">{categories.slice(0, 6).map((category, index) => { const fallback = categoryFallback(category, index); const image = category.image_url || categoryImages[category.slug] || fallback; return <Link key={category.id || category.slug} to={'/catalogue?category=' + (category.slug || category.id)} className={'category-card category-tone-' + ((index % 4) + 1)}><span className="category-card-image"><img src={image} onError={replaceBrokenImage(fallback)} alt={category.name} loading="lazy" /></span><span className="category-card-content"><span className="category-card-icon">{['⌂','◈','▣','✦','◌','◇'][index % 6]}</span><strong>{category.name}</strong><small>Voir les produits <span>↗</span></small></span></Link>; })}</div></section>;
+    return <section className="category-showcase"><div className="category-showcase-head"><div><p className="eyebrow">TROUVER VOTRE UNIVERS</p><h2>Quel espace souhaitez-vous <em>équiper ?</em></h2></div><Link to="/catalogue" className="text-link">Toutes les catégories <span>↗</span></Link></div><div className="category-cards">{categories.map((category, index) => { const fallback = categoryFallback(category, index); const image = category.image_url || categoryImages[category.slug] || fallback; return <Link key={category.id || category.slug} to={'/catalogue?category=' + (category.slug || category.id)} className={'category-card category-tone-' + ((index % 4) + 1)}><span className="category-card-image"><img src={image} onError={replaceBrokenImage(fallback)} alt={category.name} loading="lazy" /></span><span className="category-card-content"><span className="category-card-icon">{['⌂','◈','▣','✦','◌','◇'][index % 6]}</span><strong>{category.name}</strong><small>Voir les produits <span>↗</span></small></span></Link>; })}</div></section>;
 }
 function TrustBar() { return <section className="trust-bar" id="engagement">{[['✦','Qualité vérifiée','Des marques et références choisies'],['⌁','Livraison partout','Douala, Yaoundé et tout le Cameroun'],['◉','Paiement sécurisé','Mobile Money avec Nokash'],['♡','Service de proximité','Une équipe à votre écoute']].map(([icon,title,copy]) => <div key={title}><span className="trust-icon">{icon}</span><strong>{title}</strong><small>{copy}</small></div>)}</section>; }
 function ServicesSection() {
@@ -346,7 +346,7 @@ createRoot(document.getElementById('root')).render(<App />);
 
 
 function AdminPage() {
-    const { token, user, setAuthOpen, logout, notify } = useShop();
+    const { token, user, setAuthOpen, logout, notify, loadCatalog } = useShop();
     const [tab, setTab] = useState('overview');
     const [page, setPage] = useState(1);
     const [data, setData] = useState([]);
@@ -389,7 +389,7 @@ function AdminPage() {
     if (user.role !== 'admin') return <div className="admin-gate"><div className="admin-gate-card"><span className="brand-mark">!</span><p className="eyebrow">ACCES RESTREINT</p><h1>Cette zone est reservee aux administrateurs.</h1><p>Connectez-vous avec un compte disposant du role administrateur.</p><button className="button button-dark" onClick={logout}>Se deconnecter</button></div></div>;
     const changeSection = (key) => { setTab(key); setPage(1); setPagination(null); };
     const refresh = () => load(tab, tab === 'overview' ? 1 : page);
-    return <section className="admin-layout"><aside className="admin-sidebar"><Link to="/" className="admin-brand"><span className="brand-mark">A</span><span>andre<span>shop</span></span></Link><div className="admin-profile"><span className="admin-avatar">{(user.name || 'A').slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><small>Administrateur</small></div></div><nav className="admin-nav">{sections.map(([key, label, icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => changeSection(key)}><span>{icon}</span>{label}</button>)}</nav><button className="admin-logout" onClick={logout}>↪ Se deconnecter</button></aside><div className="admin-content"><header className="admin-topbar"><div><p className="eyebrow">ANDRE SHOP / ADMIN</p><h1>{sections.find(([key]) => key === tab)?.[1]}</h1></div><div className="admin-top-actions"><Link to="/" className="admin-view-store">Voir la boutique ↗</Link><button className="icon-button" onClick={refresh} aria-label="Actualiser">⟳</button></div></header>{error && <div className="admin-error">{error}</div>}{loading ? <div className="admin-loading"><span></span><span></span><span></span></div> : tab === 'overview' ? <AdminOverview stats={stats} money={money} /> : <AdminTable tab={tab} rows={data} pagination={pagination} onPageChange={setPage} token={token} refresh={refresh} money={money} notify={notify} onCreate={() => setFormState({ tab, item: null })} onEdit={(item) => setFormState({ tab, item })} />}</div>{formState && <AdminFormModal tab={formState.tab} item={formState.item} token={token} onClose={() => setFormState(null)} onSaved={() => { setFormState(null); refresh(); }} notify={notify} />}</section>;
+    return <section className="admin-layout"><aside className="admin-sidebar"><Link to="/" className="admin-brand"><span className="brand-mark">A</span><span>andre<span>shop</span></span></Link><div className="admin-profile"><span className="admin-avatar">{(user.name || 'A').slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><small>Administrateur</small></div></div><nav className="admin-nav">{sections.map(([key, label, icon]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => changeSection(key)}><span>{icon}</span>{label}</button>)}</nav><button className="admin-logout" onClick={logout}>↪ Se deconnecter</button></aside><div className="admin-content"><header className="admin-topbar"><div><p className="eyebrow">ANDRE SHOP / ADMIN</p><h1>{sections.find(([key]) => key === tab)?.[1]}</h1></div><div className="admin-top-actions"><Link to="/" className="admin-view-store">Voir la boutique ↗</Link><button className="icon-button" onClick={refresh} aria-label="Actualiser">⟳</button></div></header>{error && <div className="admin-error">{error}</div>}{loading ? <div className="admin-loading"><span></span><span></span><span></span></div> : tab === 'overview' ? <AdminOverview stats={stats} money={money} /> : <AdminTable tab={tab} rows={data} pagination={pagination} onPageChange={setPage} token={token} refresh={refresh} money={money} notify={notify} onCreate={() => setFormState({ tab, item: null })} onEdit={(item) => setFormState({ tab, item })} />}</div>{formState && <AdminFormModal tab={formState.tab} item={formState.item} token={token} onClose={() => setFormState(null)} onSaved={() => { setFormState(null); refresh(); loadCatalog(); }} notify={notify} />}</section>;
 }
 function AdminOverview({ stats, money }) {
     const products = stats?.products || [], orders = stats?.orders || [], inventory = stats?.inventory || [], payments = stats?.payments || [];
@@ -602,6 +602,13 @@ function AdminFormModal({ tab, item, token, onClose, onSaved, notify }) {
             const result = await request(endpoint, { method, token, body: requestBody });
             if (tab === 'products') {
                 const product = unwrap(result);
+                if (imageFile) {
+                    const imagePayload = new FormData();
+                    imagePayload.append('image', imageFile);
+                    imagePayload.append('alt_text', payload.name);
+                    imagePayload.append('is_primary', '1');
+                    await request('/admin/products/' + product.slug + '/images', { method: 'POST', token, body: imagePayload });
+                }
                 if (!editing) {
                     await request('/admin/inventory', {
                         method: 'POST',
@@ -614,13 +621,6 @@ function AdminFormModal({ tab, item, token, onClose, onSaved, notify }) {
                             reference: payload.sku
                         }
                     });
-                }
-                if (imageFile) {
-                    const imagePayload = new FormData();
-                    imagePayload.append('image', imageFile);
-                    imagePayload.append('alt_text', payload.name);
-                    imagePayload.append('is_primary', '1');
-                    await request('/admin/products/' + product.slug + '/images', { method: 'POST', token, body: imagePayload });
                 }
             }
             notify(editing
